@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (findings in `prototype/FINDINGS.md`; the plan review that followed has taken place)
 
-**Hard stop after this ticket:** This is the only ticket that may be worked on right now. When the prototype and its findings note are done, stop. Do not start ticket 02 or any other ticket, do not create the real app's project, and do not "get a head start" on anything. The user will review the whole plan against your findings before any further work is authorised, and the remaining tickets (currently marked needs-plan-review) may be rewritten at that review.
+**Hard stop after this ticket (applied while this ticket was open):** This is the only ticket that may be worked on right now. When the prototype and its findings note are done, stop. Do not start ticket 02 or any other ticket, do not create the real app's project, and do not "get a head start" on anything. The user will review the whole plan against your findings before any further work is authorised, and the remaining tickets (currently marked needs-plan-review) may be rewritten at that review.
 
 ## Context
 
