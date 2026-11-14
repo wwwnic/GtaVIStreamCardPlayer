@@ -2,6 +2,7 @@
 // This file is the window and the wiring Source -> Processor -> Presenter.
 //
 // Arguments: --run N   close by itself after N seconds (unattended smoke runs).
+// Keys: F11 toggles borderless fullscreen, Esc leaves it.
 #include <windows.h>
 
 #include <objbase.h>
@@ -14,9 +15,12 @@
 
 #include "core/processor.h"
 #include "core/source.h"
+#include "platform/fullscreen.h"
+#include "platform/keep_awake.h"
 #include "platform/log.h"
 #include "platform/mf_source.h"
 #include "platform/presenter.h"
+#include "platform/single_instance.h"
 #include "platform/sound.h"
 
 namespace {
@@ -30,10 +34,14 @@ const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
+    explicit App(HWND window) : fullscreen(window) {}
     gp::Presenter presenter;
     std::atomic<uint32_t> framesArrived{0};
     int statsLogged = 0;
     int secondsSinceStats = 0;
+    gp::Fullscreen fullscreen;
+    gp::KeepAwake keepAwake;
+    std::atomic<bool> frameSinceAwakeCheck{false};
 };
 
 // One line per second for the first ten seconds, then one per minute.
@@ -51,14 +59,26 @@ void LogStats(App& app) {
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    LRESULT handled = 0;
+    if (app && app->fullscreen.HandleMessage(message, wParam, lParam, &handled)) return handled;
+    if (message == gp::AnotherLaunchMessage()) {
+        gp::Log("Another launch: brought this window forward, no second copy");
+        return 0;
+    }
     switch (message) {
+    case WM_SYSCOMMAND:
+        if (app && app->keepAwake.RefuseSysCommand(wParam)) return 0;
+        break;
     case WM_SIZE:
         // Also arrives continuously while an edge is dragged; the Presenter
         // repaints on its own thread, so the picture keeps its shape during the drag.
         if (app && wParam != SIZE_MINIMIZED) app->presenter.VideoAreaResized();
         return 0;
     case WM_TIMER:
-        if (wParam == kStatsTimer && app) LogStats(*app);
+        if (wParam == kStatsTimer && app) {
+            LogStats(*app);
+            app->keepAwake.Second(app->frameSinceAwakeCheck.exchange(false));
+        }
         if (wParam == kRunTimer) PostMessageW(window, WM_CLOSE, 0, 0);
         return 0;
     case WM_CLOSE:
@@ -109,6 +129,8 @@ HWND CreateViewerWindow(HINSTANCE instance) {
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
+    // Before the log opens, so a second launch leaves the running copy's log alone.
+    if (!gp::ClaimSingleInstance(kWindowClass)) return 0;
     gp::LogOpen(LogPathBesideExecutable());
     const int runSeconds = RunSecondsFromCommandLine();
     gp::Log("GamePlayer starting%s", runSeconds ? " (--run: will close by itself)" : "");
@@ -124,7 +146,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     {
-        App app;
+        App app(window);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
         // A missing card or graphics failure leaves a black window; messages
@@ -136,6 +158,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         std::vector<gp::TimedFrame> toShow;  // used only on the Source's thread
         const bool capturing = source->Start([&](gp::FramePtr captured) {
             app.framesArrived++;
+            app.frameSinceAwakeCheck = true;
             toShow.clear();
             processor->Process(std::move(captured), toShow);
             for (gp::TimedFrame& frame : toShow) app.presenter.Submit(std::move(frame));
@@ -157,6 +180,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
         gp::Log("Closing");
         KillTimer(window, kStatsTimer);
+        app.keepAwake.Release("exit");
         ShowWindow(window, SW_HIDE);  // disappear at once; teardown follows
         sound.Stop();
         // Order matters: the Source stops calling into the Processor and
