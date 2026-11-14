@@ -20,7 +20,7 @@ Builds the test program and runs it (`build\gameplayer_tests.exe`, doctest). It 
 
 F11 toggles borderless fullscreen; Esc leaves it. Only one copy runs: while one is open, starting another just brings it forward (so a smoke run does nothing while the user's copy is open).
 
-`--run N` closes the app by itself after N seconds, for unattended smoke runs. Each run rewrites `GamePlayer.log` beside the executable: the capture devices found, every mode the card offers, the chosen device and mode, the colour range and matrix read from that mode, then frame counts and the arrival-to-present time (once a second for ten seconds, then once a minute). For sound: every audio capture endpoint, the chosen one, both endpoints' formats, periods and buffers, the buffer target, then (same rhythm) the fill, drift correction rate, underruns and overruns.
+`--run N` closes the app by itself after N seconds, for unattended smoke runs. Each run rewrites `GamePlayer.log` beside the executable: the capture devices found, every mode the card offers, the chosen device and mode, the colour range and matrix read from that mode, then frame counts and the arrival-to-present time (once a second for ten seconds, then once a minute). For sound: every audio capture endpoint, the chosen one, both endpoints' formats, periods and buffers, the buffer target, then (same rhythm) the fill, drift correction rate, underruns and overruns. Video Area: every state change (`Video Area: Loading -> Playing`), and once a second a `Signal:` line with every value no-signal detection could use (frames, stream ticks, type changes, discontinuities, luma of the latest frame, sound frames, silent frames, peak). Retries log their details only when the device list changed.
 
 ## Module layout
 
@@ -34,17 +34,22 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `colour.h`: the YUV to RGB numbers for a frame's colour range and matrix.
   - `picture_fit.h`: where the 16:9 picture goes inside the Video Area.
   - `monitor_choice.h`, `cursor_idle.h`, `stay_awake.h`: which monitor fullscreen covers, when the cursor hides, when to keep the PC awake.
+  - `video_area_state.h`: the Video Area states (Loading, No Capture Card, Card busy, No signal, Playing, Error), their messages, and when to restart picture and sound.
+  - `video_area_text.h`: text shown in the Video Area (headline and smaller detail line, three places) and its sizes for a given window.
+  - `luma_summary.h`: brightness of a frame on a coarse grid, logged for no-signal investigation only.
   - `latest_slot.h`: the single-frame hand-off between threads (a newer frame replaces an unshown one).
   - `sound_playout.h`: everything between sound capture and sound output: priming to the target fill (`kTargetFillSeconds`, the one number to tune), underrun and overrun recovery. Built from `sound_ring.h` (the buffer), `drift_correction.h` (holds the fill at its target by a tiny playback rate change), `resampler.h` (rate conversion) and `pcm.h` (sample format conversion). `capture_choice.h` also picks the audio capture endpoint.
 - `src/platform/`: the parts that talk to Windows. Not unit-tested; checked by review, the debug log and the user's eyes.
   - `mf_source.*`: the Media Foundation Source Reader implementation of `Source`.
-  - `presenter.*`: the `Presenter`. Owns the Direct3D 11 device, the flip-model swap chain, the shaders and its own presenting thread.
+  - `presenter.*`: the `Presenter`. Owns the Direct3D 11 device, the flip-model swap chain, the shaders and its own presenting thread. Recreates the device if it is lost. Text in the Video Area: `ShowText(place, text, durationMs)` from any thread (durationMs > 0 for brief feedback); `ShowPicture(false)` while a state message shows.
+  - `text_overlay.*`: draws those texts with Direct2D and DirectWrite into the back buffer.
+  - `feed_keeper.*`: runs Source, Processor, Presenter and sound; follows `video_area_state.h`, restarts picture and sound together, reacts to device notifications and resume from sleep.
   - `sound.*`: the Feed sound. WASAPI shared mode, event-driven, capture from the card's endpoint and render to the Windows default output, following changes to that default.
   - `fullscreen.*`: borderless fullscreen (F11, Esc), the hiding cursor, monitor changes. Window chrome is hidden and restored in one place, `ShowChrome`.
-  - `keep_awake.*`: no system or display sleep while a Feed plays.
+  - `keep_awake.*`: no system or display sleep while a Feed plays (the Playing state only).
   - `single_instance.*`: a second launch brings the running window forward and exits.
   - `log.*`: the debug log.
-- `src/app/main.cpp`: the window and the wiring of Source to Processor to Presenter.
+- `src/app/main.cpp`: the window.
 - `third_party/doctest/`: the vendored test framework (one header).
 - `prototype/`: the throwaway prototype from ticket 01. Reference only; not part of the app.
 

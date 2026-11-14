@@ -12,10 +12,12 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "core/capture_choice.h"
+#include "core/luma_summary.h"
 #include "platform/log.h"
 
 using Microsoft::WRL::ComPtr;
@@ -106,11 +108,12 @@ class ReaderCallback final : public IMFSourceReaderCallback {
 public:
     ReaderCallback() : flushed_(CreateEventW(nullptr, TRUE, FALSE, nullptr)) {}
 
-    void Begin(ComPtr<IMFSourceReader> reader, Source::FrameSink sink, PixelFormat format, uint32_t width,
-               uint32_t height, Colour colour) {
+    void Begin(ComPtr<IMFSourceReader> reader, Source::FrameSink sink, Source::EventSink events, PixelFormat format,
+               uint32_t width, uint32_t height, Colour colour) {
         std::lock_guard lock(mutex_);
         reader_ = std::move(reader);
         sink_ = std::move(sink);
+        events_ = std::move(events);
         format_ = format;
         width_ = width;
         height_ = height;
@@ -123,6 +126,7 @@ public:
         {
             std::lock_guard lock(mutex_);  // waits for a sink call in progress
             sink_ = nullptr;
+            events_ = nullptr;
             reader = reader_;
         }
         if (reader) {
@@ -136,6 +140,23 @@ public:
     }
 
     uint64_t FramesDelivered() const { return sequence_.load(); }
+
+    Source::Probe TakeProbe() {
+        Source::Probe probe;
+        probe.frames = frames_.exchange(0);
+        probe.streamTicks = streamTicks_.exchange(0);
+        probe.typeChanges = typeChanges_.exchange(0);
+        probe.discontinuities = discontinuities_.exchange(0);
+        {
+            std::lock_guard lock(lumaMutex_);
+            probe.lumaMin = luma_.min;
+            probe.lumaMax = luma_.max;
+            probe.lumaMean = luma_.mean;
+            luma_ = {};
+        }
+        lumaWanted_ = true;  // summarise the next frame
+        return probe;
+    }
 
     STDMETHODIMP QueryInterface(REFIID riid, void** object) override {
         if (riid == __uuidof(IUnknown) || riid == __uuidof(IMFSourceReaderCallback)) {
@@ -159,27 +180,36 @@ public:
 
         std::lock_guard lock(mutex_);
         if (!sink_ || !reader_) return S_OK;  // stopping
-        if (FAILED(status)) {
-            // Recovery is ticket 06; for now capture simply ends.
-            Log("Source: read failed hr=0x%08lX; capture stopped", static_cast<unsigned long>(status));
-            return S_OK;
-        }
-        if (flags & MF_SOURCE_READERF_ERROR) {
-            Log("Source: stream error; capture stopped");
+        // Another program holding the card shows here, on the first read:
+        // status 0xC00D3704 with the error flag (GC553 Pro).
+        const SourceStage stage = sequence_ == 0 ? SourceStage::FirstRead : SourceStage::Read;
+        if (FAILED(status) || (flags & MF_SOURCE_READERF_ERROR)) {
+            Fail(stage, FAILED(status) ? status : E_FAIL, "read failed");
             return S_OK;
         }
         if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
-            Log("Source: end of stream; capture stopped");
+            Fail(stage, MF_E_END_OF_STREAM, "end of stream");
             return S_OK;
         }
+        if (flags & MF_SOURCE_READERF_STREAMTICK) streamTicks_++;
         if (flags & (MF_SOURCE_READERF_NATIVEMEDIATYPECHANGED | MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)) {
+            typeChanges_++;
             Log("Source: media type changed mid-stream (flags=0x%lX)", static_cast<unsigned long>(flags));
         }
         if (sample) {
-            if (FramePtr frame = CopySample(sample, arrival.QuadPart)) sink_(std::move(frame));
+            if (MFGetAttributeUINT32(sample, MFSampleExtension_Discontinuity, FALSE)) discontinuities_++;
+            if (FramePtr frame = CopySample(sample, arrival.QuadPart)) {
+                frames_++;
+                if (lumaWanted_.exchange(false)) {
+                    const LumaSummary luma = SummarizeLuma(*frame);
+                    std::lock_guard lumaLock(lumaMutex_);
+                    luma_ = luma;
+                }
+                sink_(std::move(frame));
+            }
         }
         const HRESULT hr = reader_->ReadSample(kVideoStream, 0, nullptr, nullptr, nullptr, nullptr);
-        if (FAILED(hr)) Log("Source: ReadSample failed hr=0x%08lX; capture stopped", static_cast<unsigned long>(hr));
+        if (FAILED(hr)) Fail(SourceStage::Read, hr, "ReadSample failed");
         return S_OK;
     }
     STDMETHODIMP OnEvent(DWORD, IMFMediaEvent*) override { return S_OK; }
@@ -190,6 +220,14 @@ public:
 
 private:
     ~ReaderCallback() { CloseHandle(flushed_); }
+
+    // Capture ends; the Viewer decides what to do. Called with mutex_ held.
+    void Fail(SourceStage stage, HRESULT hr, const char* what) {
+        Log("Source: %s hr=0x%08lX (%s) after %llu frames; capture stopped", what, static_cast<unsigned long>(hr),
+            NameOf(stage), static_cast<unsigned long long>(sequence_.load()));
+        if (events_) events_({SourceEvent::Kind::Failed, stage, static_cast<uint32_t>(hr)});
+        events_ = nullptr;  // one failure per start
+    }
 
     FramePtr CopySample(IMFSample* sample, int64_t arrivalQpc) {
         ComPtr<IMFMediaBuffer> buffer;
@@ -226,12 +264,19 @@ private:
     std::mutex mutex_;  // guards everything below; held while the sink runs
     ComPtr<IMFSourceReader> reader_;
     Source::FrameSink sink_;
+    Source::EventSink events_;
     PixelFormat format_ = PixelFormat::YUY2;
     uint32_t width_ = 0, height_ = 0;
     Colour colour_;
     FramePool pool_;
     std::atomic<uint64_t> sequence_{0};
     bool warnedShortBuffer_ = false;
+
+    // The probe (no-signal investigation), taken once a second from another thread.
+    std::atomic<uint32_t> frames_{0}, streamTicks_{0}, typeChanges_{0}, discontinuities_{0};
+    std::atomic<bool> lumaWanted_{true};
+    std::mutex lumaMutex_;
+    LumaSummary luma_;
 };
 
 class MediaFoundationSource final : public Source {
@@ -247,11 +292,19 @@ public:
         if (mfStarted_) MFShutdown();
     }
 
-    bool Start(FrameSink sink) override {
-        if (!mfStarted_ || callback_) return false;
-        if (!OpenDevice()) return false;
-        if (!StartReading(std::move(sink))) {
+    // Every start chooses the device from scratch: after a replug the card
+    // may come back under a new identity.
+    bool Start(FrameSink frames, EventSink events) override {
+        if (callback_) return false;
+        if (!mfStarted_) {
+            events({SourceEvent::Kind::Failed, SourceStage::Enumerate, static_cast<uint32_t>(E_FAIL)});
+            return false;
+        }
+        std::optional<SourceEvent> failure = OpenDevice();
+        if (!failure) failure = StartReading(std::move(frames), events);
+        if (failure) {
             Stop();
+            events(*failure);
             return false;
         }
         return true;
@@ -260,7 +313,8 @@ public:
     void Stop() override {
         if (callback_) {
             callback_->End();
-            Log("Source: stopped after %llu frames", static_cast<unsigned long long>(callback_->FramesDelivered()));
+            const uint64_t frames = callback_->FramesDelivered();
+            if (frames || detail_) Log("Source: stopped after %llu frames", static_cast<unsigned long long>(frames));
             callback_.Reset();
         }
         if (device_) {
@@ -271,8 +325,22 @@ public:
 
     std::wstring DeviceName() const override { return deviceName_; }
 
+    Probe TakeProbe() override { return callback_ ? callback_->TakeProbe() : Probe{}; }
+
 private:
-    bool OpenDevice() {
+    // Retries happen every second or so; their details are logged only when
+    // the device list differs from the previous attempt's.
+    template <typename... Args>
+    void Detail(const char* format, Args... args) {
+        if (detail_) Log(format, args...);
+    }
+
+    static SourceEvent Failure(SourceStage stage, HRESULT hr) {
+        return {SourceEvent::Kind::Failed, stage, static_cast<uint32_t>(hr)};
+    }
+
+    std::optional<SourceEvent> OpenDevice() {
+        deviceName_.clear();
         ComPtr<IMFAttributes> query;
         MFCreateAttributes(&query, 1);
         query->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
@@ -281,7 +349,7 @@ private:
         HRESULT hr = MFEnumDeviceSources(query.Get(), &devices, &count);
         if (FAILED(hr)) {
             Log("Source: MFEnumDeviceSources failed hr=0x%08lX", static_cast<unsigned long>(hr));
-            return false;
+            return Failure(SourceStage::Enumerate, hr);
         }
         std::vector<std::wstring> names(count);
         for (UINT32 i = 0; i < count; i++) {
@@ -291,26 +359,31 @@ private:
                 names[i] = name;
             }
             CoTaskMemFree(name);
-            Log("Source: capture device [%u] \"%s\"", i, ToUtf8(names[i]).c_str());
         }
+        detail_ = !lastNames_ || names != *lastNames_;
+        lastNames_ = names;
+        if (detail_) Log("Source: %u capture devices", count);
+        for (UINT32 i = 0; i < count; i++) Detail("Source: capture device [%u] \"%s\"", i, ToUtf8(names[i]).c_str());
+        std::optional<SourceEvent> failure;
         const std::optional<size_t> chosen = ChooseCaptureDevice(names);
         if (chosen) {
-            Log("Source: chosen device [%zu] \"%s\"", *chosen, ToUtf8(names[*chosen]).c_str());
+            Detail("Source: chosen device [%zu] \"%s\"", *chosen, ToUtf8(names[*chosen]).c_str());
             deviceName_ = names[*chosen];
             hr = devices[*chosen]->ActivateObject(IID_PPV_ARGS(&device_));
             if (FAILED(hr)) {
-                Log("Source: could not open the device hr=0x%08lX (another program may be using it)",
-                    static_cast<unsigned long>(hr));
+                Log("Source: could not open the device hr=0x%08lX", static_cast<unsigned long>(hr));
+                failure = Failure(SourceStage::Open, hr);
             }
         } else {
-            Log("Source: no video capture device found");
+            Detail("Source: no video capture device found");
+            failure = SourceEvent{SourceEvent::Kind::NoDevice, SourceStage::Enumerate, 0};
         }
         for (UINT32 i = 0; i < count; i++) devices[i]->Release();
         CoTaskMemFree(devices);
-        return device_ != nullptr;
+        return failure;
     }
 
-    bool StartReading(FrameSink sink) {
+    std::optional<SourceEvent> StartReading(FrameSink sink, const EventSink& events) {
         callback_.Attach(new ReaderCallback());
 
         ComPtr<IMFAttributes> settings;
@@ -324,7 +397,7 @@ private:
         HRESULT hr = MFCreateSourceReaderFromMediaSource(device_.Get(), settings.Get(), &reader);
         if (FAILED(hr)) {
             Log("Source: could not create the Source Reader hr=0x%08lX", static_cast<unsigned long>(hr));
-            return false;
+            return Failure(SourceStage::Reader, hr);
         }
 
         std::vector<CaptureMode> modes;
@@ -333,13 +406,13 @@ private:
             hr = reader->GetNativeMediaType(kVideoStream, i, &type);
             if (FAILED(hr)) break;  // MF_E_NO_MORE_TYPES ends the list
             modes.push_back(ModeOf(type.Get()));
-            Log("Source: mode #%lu %s", static_cast<unsigned long>(i), Describe(type.Get()).c_str());
+            Detail("Source: mode #%lu %s", static_cast<unsigned long>(i), Describe(type.Get()).c_str());
         }
         const std::optional<size_t> chosen = ChooseCaptureMode(modes);
         if (!chosen) {
             Log("Source: the device offers no uncompressed 1920x1080 60 fps mode (YUY2 or NV12) among %zu modes",
                 modes.size());
-            return false;
+            return Failure(SourceStage::Mode, MF_E_INVALIDMEDIATYPE);
         }
 
         ComPtr<IMFMediaType> native;
@@ -349,34 +422,40 @@ private:
         hr = reader->SetCurrentMediaType(kVideoStream, nullptr, native.Get());
         if (FAILED(hr)) {
             Log("Source: SetCurrentMediaType failed hr=0x%08lX", static_cast<unsigned long>(hr));
-            return false;
+            return Failure(SourceStage::Mode, hr);
         }
         ComPtr<IMFMediaType> current;
         hr = reader->GetCurrentMediaType(kVideoStream, &current);
         if (FAILED(hr)) {
             Log("Source: GetCurrentMediaType failed hr=0x%08lX", static_cast<unsigned long>(hr));
-            return false;
+            return Failure(SourceStage::Mode, hr);
         }
         const CaptureMode mode = ModeOf(current.Get());
         if (!mode.format || mode.width == 0 || mode.height == 0) {
             Log("Source: the reader is not delivering the chosen format: %s", Describe(current.Get()).c_str());
-            return false;
+            return Failure(SourceStage::Mode, MF_E_INVALIDMEDIATYPE);
         }
         const Colour colour = ColourOf(current.Get());
-        Log("Source: chosen mode #%zu %s", *chosen, Describe(current.Get()).c_str());
-        Log("Source: colour from the media type: range %s, matrix %s", RangeName(colour.range), MatrixName(colour.matrix));
+        Detail("Source: chosen mode #%zu %s", *chosen, Describe(current.Get()).c_str());
+        Detail("Source: colour from the media type: range %s, matrix %s", RangeName(colour.range),
+               MatrixName(colour.matrix));
 
-        callback_->Begin(reader, std::move(sink), *mode.format, mode.width, mode.height, colour);
+        // Opened goes out before the first read, whose failure may be reported
+        // from the reader's thread at once.
+        events({SourceEvent::Kind::Opened, SourceStage::FirstRead, 0});
+        callback_->Begin(reader, std::move(sink), events, *mode.format, mode.width, mode.height, colour);
         hr = reader->ReadSample(kVideoStream, 0, nullptr, nullptr, nullptr, nullptr);
         if (FAILED(hr)) {
             Log("Source: first ReadSample failed hr=0x%08lX", static_cast<unsigned long>(hr));
-            return false;
+            return Failure(SourceStage::FirstRead, hr);
         }
-        Log("Source: capturing (Source Reader, asynchronous, converters disabled)");
-        return true;
+        Detail("Source: capturing (Source Reader, asynchronous, converters disabled)");
+        return std::nullopt;
     }
 
     bool mfStarted_ = false;
+    bool detail_ = true;
+    std::optional<std::vector<std::wstring>> lastNames_;
     std::wstring deviceName_;
     ComPtr<IMFMediaSource> device_;
     ComPtr<ReaderCallback> callback_;

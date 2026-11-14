@@ -1,5 +1,5 @@
 // GamePlayer, the Viewer: shows the Console's Feed from the Capture Card.
-// This file is the window and the wiring Source -> Processor -> Presenter.
+// This file is the window; FeedKeeper wires Source -> Processor -> Presenter.
 //
 // Arguments: --run N   close by itself after N seconds (unattended smoke runs).
 // Keys: F11 toggles borderless fullscreen, Esc leaves it.
@@ -13,15 +13,12 @@
 #include <string>
 #include <vector>
 
-#include "core/processor.h"
-#include "core/source.h"
+#include "platform/feed_keeper.h"
 #include "platform/fullscreen.h"
 #include "platform/keep_awake.h"
 #include "platform/log.h"
-#include "platform/mf_source.h"
 #include "platform/presenter.h"
 #include "platform/single_instance.h"
-#include "platform/sound.h"
 
 namespace {
 
@@ -34,14 +31,13 @@ const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
-    explicit App(HWND window) : fullscreen(window) {}
+    explicit App(HWND window) : fullscreen(window), feed(window, presenter) {}
     gp::Presenter presenter;
-    std::atomic<uint32_t> framesArrived{0};
     int statsLogged = 0;
     int secondsSinceStats = 0;
     gp::Fullscreen fullscreen;
     gp::KeepAwake keepAwake;
-    std::atomic<bool> frameSinceAwakeCheck{false};
+    gp::FeedKeeper feed;  // after the Presenter it feeds
 };
 
 // One line per second for the first ten seconds, then one per minute.
@@ -49,7 +45,7 @@ void LogStats(App& app) {
     app.secondsSinceStats++;
     if (app.statsLogged >= 10 && app.secondsSinceStats < 60) return;
     const double seconds = app.secondsSinceStats;
-    const uint32_t arrived = app.framesArrived.exchange(0);
+    const uint32_t arrived = app.feed.TakeFramesArrived();
     const gp::Presenter::Stats shown = app.presenter.TakeStats();
     gp::Log("Stats: arrived %.1f/s, presented %.1f/s, replaced before shown %u, arrival-to-present avg %.2f ms worst %.2f ms",
             arrived / seconds, shown.presented / seconds, shown.replaced, shown.averageLatencyMs, shown.worstLatencyMs);
@@ -61,6 +57,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     LRESULT handled = 0;
     if (app && app->fullscreen.HandleMessage(message, wParam, lParam, &handled)) return handled;
+    if (app && app->feed.HandleMessage(message, wParam, lParam, &handled)) return handled;
     if (message == gp::AnotherLaunchMessage()) {
         gp::Log("Another launch: brought this window forward, no second copy");
         return 0;
@@ -77,7 +74,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_TIMER:
         if (wParam == kStatsTimer && app) {
             LogStats(*app);
-            app->keepAwake.Second(app->frameSinceAwakeCheck.exchange(false));
+            app->keepAwake.Second(app->feed.TakePlayingSecond());  // not while a state message shows
         }
         if (wParam == kRunTimer) PostMessageW(window, WM_CLOSE, 0, 0);
         return 0;
@@ -149,24 +146,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         App app(window);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
-        // A missing card or graphics failure leaves a black window; messages
-        // and recovery arrive with ticket 06.
         if (!app.presenter.Start(window)) gp::Log("No Presenter: the window stays black");
-
-        std::unique_ptr<gp::Processor> processor = gp::MakePassThroughProcessor();
-        std::unique_ptr<gp::Source> source = gp::MakeMediaFoundationSource();
-        std::vector<gp::TimedFrame> toShow;  // used only on the Source's thread
-        const bool capturing = source->Start([&](gp::FramePtr captured) {
-            app.framesArrived++;
-            app.frameSinceAwakeCheck = true;
-            toShow.clear();
-            processor->Process(std::move(captured), toShow);
-            for (gp::TimedFrame& frame : toShow) app.presenter.Submit(std::move(frame));
-        });
-        if (!capturing) gp::Log("No Feed: the window stays black");
-
-        gp::Sound sound;  // independent of the picture: either may work without the other
-        if (!sound.Start(source->DeviceName())) gp::Log("No Feed sound");
+        app.feed.Start();  // shows Loading, then the Feed or why not; recovers by itself
 
         ShowWindow(window, showCommand);
         SetTimer(window, kStatsTimer, 1000, nullptr);
@@ -182,11 +163,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         KillTimer(window, kStatsTimer);
         app.keepAwake.Release("exit");
         ShowWindow(window, SW_HIDE);  // disappear at once; teardown follows
-        sound.Stop();
-        // Order matters: the Source stops calling into the Processor and
-        // Presenter before either goes away.
-        source->Stop();
-        source.reset();
+        app.feed.Stop();  // before the Presenter it feeds
         app.presenter.Stop();
         SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     }

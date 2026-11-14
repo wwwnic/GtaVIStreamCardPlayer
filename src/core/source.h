@@ -43,9 +43,9 @@ public:
     // a time and in arrival order. It must return quickly and must not call
     // back into the Source.
     using FrameSink = std::function<void(FramePtr)>;
-    // Called on the calling thread during Start (exactly one of Opened,
-    // NoDevice or Failed), and later from the Source's thread if reading
-    // fails. Same rules as FrameSink.
+    // Called during Start on the calling thread (NoDevice, or Failed, or
+    // Opened), and after Opened at most one Failed, from either thread, if
+    // reading fails. Must return quickly; may run before Start returns.
     using EventSink = std::function<void(const SourceEvent&)>;
 
     // Values the Viewer may use to tell "no signal", collected since the
@@ -62,7 +62,7 @@ public:
     virtual ~Source() = default;
 
     // Finds the Capture Card, picks its mode and starts delivering frames.
-    // Returns true when Opened was reported.
+    // Returns false when a failure was reported during Start.
     virtual bool Start(FrameSink frames, EventSink events) = 0;
 
     // Stops capture and releases the device. Neither sink is called after
