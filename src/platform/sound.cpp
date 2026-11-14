@@ -428,7 +428,7 @@ struct Sound::Impl {
         Log("Sound: fill avg %.1f ms (min %.1f, max %.1f), target %.0f ms, rate %+.0f ppm, captured %.0f/s, played %.0f/s, "
             "underruns %u, overruns %u, discontinuities %u%s",
             stats.fillAverageSeconds * 1000, stats.fillMinSeconds * 1000, stats.fillMaxSeconds * 1000,
-            SoundPlayout::kTargetFillSeconds * 1000, (stats.rate - 1.0) * 1e6, stats.framesPushed / seconds,
+            playout->TargetFillSeconds() * 1000, (stats.rate - 1.0) * 1e6, stats.framesPushed / seconds,
             stats.framesPulled / seconds, stats.underruns, stats.overruns, discontinuities.exchange(0),
             render ? "" : " (no output device)");
     }
@@ -484,6 +484,8 @@ bool Sound::Start(const std::wstring& cardName) {
     Log("Sound: buffer target %.0f ms of fill, overrun above %.0f ms more; drift correction up to %.0f ppm",
         SoundPlayout::kTargetFillSeconds * 1000, SoundPlayout::kOverrunMarginSeconds * 1000,
         DriftCorrection::kMaxCorrection * 1e6);
+    impl->playout->SetGain(static_cast<float>(GainOf(settings_)));
+    impl->playout->SetAudioDelay(settings_.audioDelayMs / 1000.0);
 
     impl->watcher.Attach(new DefaultOutputWatcher(impl->wake));
     hr = impl->enumerator->RegisterEndpointNotificationCallback(impl->watcher.Get());
@@ -521,6 +523,33 @@ void Sound::Stop() {
     if (impl.capture) impl.capture->client->Stop();
     Log("Sound: stopped");
     impl_.reset();
+}
+
+void Sound::SetVolume(int percent) {
+    settings_.volumePercent = ClampVolume(percent);
+    ApplySettings();
+}
+
+void Sound::SetMuted(bool muted) {
+    settings_.muted = muted;
+    ApplySettings();
+}
+
+void Sound::SetAudioDelayMs(int ms) {
+    settings_.audioDelayMs = ClampAudioDelay(ms);
+    ApplySettings();
+}
+
+void Sound::ApplySettings() {
+    if (!impl_ || !impl_->playout) {
+        Log("Audio: volume %d%%%s, Audio Delay %d ms (no sound playing)", settings_.volumePercent,
+            settings_.muted ? " muted" : "", settings_.audioDelayMs);
+        return;
+    }
+    impl_->playout->SetGain(static_cast<float>(GainOf(settings_)));
+    impl_->playout->SetAudioDelay(settings_.audioDelayMs / 1000.0);
+    Log("Audio: volume %d%%%s, Audio Delay %d ms, buffer target now %.0f ms", settings_.volumePercent,
+        settings_.muted ? " muted" : "", settings_.audioDelayMs, impl_->playout->TargetFillSeconds() * 1000);
 }
 
 }  // namespace gp

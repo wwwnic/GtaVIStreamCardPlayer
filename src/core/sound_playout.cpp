@@ -48,7 +48,7 @@ void SoundPlayout::SetAudioDelay(double seconds) {
 
 double SoundPlayout::TargetFillSeconds() {
     std::lock_guard lock(mutex_);
-    return TargetSeconds();
+    return kTargetFillSeconds + pendingDelaySeconds_;
 }
 
 void SoundPlayout::Push(const float* stereo, size_t frames) {

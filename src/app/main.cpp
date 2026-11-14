@@ -2,7 +2,8 @@
 // This file is the window and the wiring Source -> Processor -> Presenter.
 //
 // Arguments: --run N   close by itself after N seconds (unattended smoke runs).
-// Keys: F11 toggles borderless fullscreen, Esc leaves it.
+// Keys: F11 toggles borderless fullscreen, Esc leaves it. Up / Down volume,
+// M mute, J / K Audio Delay (sound earlier / later).
 #include <windows.h>
 
 #include <objbase.h>
@@ -13,8 +14,10 @@
 #include <string>
 #include <vector>
 
+#include "core/audio_controls.h"
 #include "core/processor.h"
 #include "core/source.h"
+#include "platform/feedback.h"
 #include "platform/fullscreen.h"
 #include "platform/keep_awake.h"
 #include "platform/log.h"
@@ -34,8 +37,10 @@ const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
-    explicit App(HWND window) : fullscreen(window) {}
+    explicit App(HWND window) : feedback(window), fullscreen(window) {}
     gp::Presenter presenter;
+    gp::Sound sound;  // independent of the picture: either may work without the other
+    gp::Feedback feedback;
     std::atomic<uint32_t> framesArrived{0};
     int statsLogged = 0;
     int secondsSinceStats = 0;
@@ -57,6 +62,32 @@ void LogStats(App& app) {
     app.secondsSinceStats = 0;
 }
 
+// Up, Down, M, J, K. Only arrive while the window has focus (both modes).
+bool HandleAudioKey(App& app, WPARAM key, LPARAM flags) {
+    gp::AudioKey audioKey;
+    switch (key) {
+    case VK_UP: audioKey = gp::AudioKey::VolumeUp; break;
+    case VK_DOWN: audioKey = gp::AudioKey::VolumeDown; break;
+    case 'M': audioKey = gp::AudioKey::ToggleMute; break;
+    case 'J': audioKey = gp::AudioKey::DelayEarlier; break;
+    case 'K': audioKey = gp::AudioKey::DelayLater; break;
+    default: return false;
+    }
+    const bool repeat = (flags & (1 << 30)) != 0;
+    if (repeat && audioKey == gp::AudioKey::ToggleMute) return true;  // held M toggles once
+    gp::AudioSettings now;
+    now.volumePercent = app.sound.Volume();
+    now.muted = app.sound.Muted();
+    now.audioDelayMs = app.sound.AudioDelayMs();
+    const gp::AudioKeyResult pressed = gp::PressAudioKey(now, audioKey);
+    if (pressed.settings.muted != now.muted) app.sound.SetMuted(pressed.settings.muted);
+    if (pressed.settings.volumePercent != now.volumePercent) app.sound.SetVolume(pressed.settings.volumePercent);
+    if (pressed.settings.audioDelayMs != now.audioDelayMs) app.sound.SetAudioDelayMs(pressed.settings.audioDelayMs);
+    gp::Log("Key: %s", pressed.feedback.c_str());
+    app.feedback.Show(pressed.feedback);
+    return true;
+}
+
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     LRESULT handled = 0;
@@ -66,13 +97,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         return 0;
     }
     switch (message) {
+    case WM_KEYDOWN:
+        if (app && HandleAudioKey(*app, wParam, lParam)) return 0;
+        break;
+    case WM_MOVE:
+        if (app) app->feedback.VideoAreaMoved();
+        break;
     case WM_SYSCOMMAND:
         if (app && app->keepAwake.RefuseSysCommand(wParam)) return 0;
         break;
     case WM_SIZE:
         // Also arrives continuously while an edge is dragged; the Presenter
         // repaints on its own thread, so the picture keeps its shape during the drag.
-        if (app && wParam != SIZE_MINIMIZED) app->presenter.VideoAreaResized();
+        if (app && wParam != SIZE_MINIMIZED) {
+            app->presenter.VideoAreaResized();
+            app->feedback.VideoAreaMoved();
+        }
         return 0;
     case WM_TIMER:
         if (wParam == kStatsTimer && app) {
@@ -165,8 +205,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         });
         if (!capturing) gp::Log("No Feed: the window stays black");
 
-        gp::Sound sound;  // independent of the picture: either may work without the other
-        if (!sound.Start(source->DeviceName())) gp::Log("No Feed sound");
+        if (!app.sound.Start(source->DeviceName())) gp::Log("No Feed sound");
 
         ShowWindow(window, showCommand);
         SetTimer(window, kStatsTimer, 1000, nullptr);
@@ -182,7 +221,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         KillTimer(window, kStatsTimer);
         app.keepAwake.Release("exit");
         ShowWindow(window, SW_HIDE);  // disappear at once; teardown follows
-        sound.Stop();
+        app.sound.Stop();
         // Order matters: the Source stops calling into the Processor and
         // Presenter before either goes away.
         source->Stop();
