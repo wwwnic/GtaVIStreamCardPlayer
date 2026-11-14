@@ -5,6 +5,8 @@
 #include <dxgi1_5.h>
 #include <wrl/client.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstring>
 #include <mutex>
@@ -15,6 +17,7 @@
 #include "core/latest_slot.h"
 #include "core/picture_fit.h"
 #include "platform/log.h"
+#include "platform/text_overlay.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -110,10 +113,7 @@ public:
     bool Start(HWND window) {
         if (thread_.joinable()) return false;
         window_ = window;
-        if (!CreateDeviceAndSwapChain() || !CreatePipeline()) {
-            ReleaseDevice();
-            return false;
-        }
+        if (!CreateDevice()) return false;
         wake_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         stop_ = false;
         resized_ = true;  // first pass paints the Video Area black
@@ -165,8 +165,38 @@ public:
         return taken;
     }
 
+    void ShowText(TextPlace place, VideoAreaText text, int durationMs) {
+        const size_t index = static_cast<size_t>(place);
+        if (index >= TextOverlay::kPlaces) return;
+        {
+            std::lock_guard lock(textMutex_);
+            if (texts_[index] == text && durationMs <= 0 && textEndsAt_[index] == 0) return;  // nothing new
+            texts_[index] = std::move(text);
+            textEndsAt_[index] = durationMs > 0 ? GetTickCount64() + static_cast<ULONGLONG>(durationMs) : 0;
+        }
+        Repaint();
+    }
+
+    void ShowPicture(bool visible) {
+        if (pictureVisible_.exchange(visible) != visible) Repaint();
+    }
+
 private:
-    // ---- setup (window's thread) ----
+    void Repaint() {
+        repaint_ = true;
+        if (wake_) SetEvent(wake_);
+    }
+
+    // ---- setup (window's thread at Start; presenting thread after a device loss) ----
+
+    bool CreateDevice() {
+        if (!CreateDeviceAndSwapChain() || !CreatePipeline()) {
+            ReleaseDevice();
+            return false;
+        }
+        overlay_.Attach(device_.Get());  // without it the picture still shows
+        return true;
+    }
 
     bool CreateDeviceAndSwapChain() {
         D3D_FEATURE_LEVEL level = {};
@@ -282,6 +312,7 @@ private:
     }
 
     void ReleaseDevice() {
+        overlay_.Detach();
         if (latencyWaitable_) CloseHandle(latencyWaitable_);
         latencyWaitable_ = nullptr;
         if (context_) {
@@ -311,11 +342,19 @@ private:
     void Run() {
         Log("Presenter: thread started");
         while (true) {
-            WaitForSingleObject(wake_, INFINITE);
+            WaitForSingleObject(wake_, deviceLost_ ? 1000 : NextTextEndMs());
             if (stop_) break;
-            if (deviceLost_) continue;
+            if (deviceLost_) {
+                // Graphics driver reset or GPU removed (it can happen around
+                // sleep): build everything again, once a second until it works.
+                ReleaseDevice();
+                if (!CreateDevice()) continue;
+                Log("Presenter: device recreated after a loss");
+                deviceLost_ = false;
+                resized_ = true;
+            }
 
-            bool draw = false;
+            bool draw = repaint_.exchange(false) || EndExpiredTexts();
             if (resized_.exchange(false)) {
                 ResizeBackBuffer();
                 draw = true;  // also repaints when no new frame is coming
@@ -336,6 +375,31 @@ private:
         Log("Presenter: thread stopped");
     }
 
+    // Milliseconds until the next brief text ends; INFINITE when none.
+    DWORD NextTextEndMs() {
+        std::lock_guard lock(textMutex_);
+        const ULONGLONG now = GetTickCount64();
+        DWORD wait = INFINITE;
+        for (ULONGLONG endsAt : textEndsAt_) {
+            if (endsAt) wait = std::min<DWORD>(wait, endsAt > now ? static_cast<DWORD>(endsAt - now) : 0);
+        }
+        return wait;
+    }
+
+    bool EndExpiredTexts() {
+        std::lock_guard lock(textMutex_);
+        const ULONGLONG now = GetTickCount64();
+        bool ended = false;
+        for (size_t i = 0; i < TextOverlay::kPlaces; i++) {
+            if (textEndsAt_[i] && textEndsAt_[i] <= now) {
+                texts_[i] = {};
+                textEndsAt_[i] = 0;
+                ended = true;
+            }
+        }
+        return ended;
+    }
+
     void ResizeBackBuffer() {
         RECT client = {};
         GetClientRect(window_, &client);
@@ -345,6 +409,8 @@ private:
         if (width == backWidth_ && height == backHeight_ && backBufferView_) return;
         context_->OMSetRenderTargets(0, nullptr, nullptr);
         backBufferView_.Reset();
+        overlay_.ReleaseTarget();
+        context_->Flush();
         const HRESULT hr = swapChain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, swapChainFlags_);
         if (FAILED(hr)) Log("Presenter: ResizeBuffers(%ux%u) failed hr=0x%08lX", width, height, static_cast<unsigned long>(hr));
         CreateBackBufferView();
@@ -449,7 +515,7 @@ private:
         ID3D11RenderTargetView* target = backBufferView_.Get();
         context_->OMSetRenderTargets(1, &target, nullptr);
         context_->ClearRenderTargetView(target, black);
-        if (havePicture_) {
+        if (havePicture_ && pictureVisible_) {
             const PictureRect fit = FitPicture(static_cast<int>(backWidth_), static_cast<int>(backHeight_),
                                                static_cast<int>(pictureWidth_), static_cast<int>(pictureHeight_));
             const D3D11_VIEWPORT viewport = {static_cast<float>(fit.x), static_cast<float>(fit.y),
@@ -466,13 +532,21 @@ private:
             ID3D11ShaderResourceView* none = nullptr;
             context_->PSSetShaderResources(2, 1, &none);  // free the picture for pass 1
         }
+        context_->OMSetRenderTargets(0, nullptr, nullptr);
+        TextOverlay::Texts texts;
+        {
+            std::lock_guard lock(textMutex_);
+            texts = texts_;
+        }
+        overlay_.Draw(swapChain_.Get(), texts, backWidth_, backHeight_);
         // Interval 0 = do not wait for the monitor; with tearing allowed the
         // frame goes out immediately and the FreeSync display follows.
         const HRESULT hr = swapChain_->Present(0, tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
-            // Recovery is ticket 06; for now the picture simply stops.
-            Log("Presenter: device lost hr=0x%08lX; presenting stopped", static_cast<unsigned long>(hr));
+            Log("Presenter: device lost hr=0x%08lX (reason 0x%08lX); recreating", static_cast<unsigned long>(hr),
+                static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
             deviceLost_ = true;
+            SetEvent(wake_);
         } else if (FAILED(hr) && !warnedPresent_) {
             warnedPresent_ = true;
             Log("Presenter: Present failed hr=0x%08lX", static_cast<unsigned long>(hr));
@@ -484,7 +558,14 @@ private:
     std::thread thread_;
     std::atomic<bool> stop_{false};
     std::atomic<bool> resized_{false};
+    std::atomic<bool> repaint_{false};
+    std::atomic<bool> pictureVisible_{true};
     LatestSlot<TimedFrame> slot_;
+
+    std::mutex textMutex_;
+    TextOverlay::Texts texts_;
+    std::array<ULONGLONG, TextOverlay::kPlaces> textEndsAt_ = {};  // GetTickCount64; 0 = stays
+    TextOverlay overlay_;  // presenting thread (and Start/Stop)
 
     std::mutex statsMutex_;
     Stats stats_;
@@ -524,6 +605,10 @@ bool Presenter::Start(HWND window) { return impl_->Start(window); }
 void Presenter::Stop() { impl_->Stop(); }
 void Presenter::Submit(TimedFrame frame) { impl_->Submit(std::move(frame)); }
 void Presenter::VideoAreaResized() { impl_->VideoAreaResized(); }
+void Presenter::ShowText(TextPlace place, VideoAreaText text, int durationMs) {
+    impl_->ShowText(place, std::move(text), durationMs);
+}
+void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 Presenter::Stats Presenter::TakeStats() { return impl_->TakeStats(); }
 
 }  // namespace gp

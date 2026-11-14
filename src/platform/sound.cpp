@@ -7,8 +7,10 @@
 
 #include "platform/sound.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -250,6 +252,8 @@ struct Sound::Impl {
     std::thread captureThread;
     std::atomic<bool> capturing{false};
     std::atomic<uint32_t> discontinuities{0};
+    std::mutex probeMutex;
+    Sound::Probe probe;
 
     std::unique_ptr<Stream> render;
     std::wstring renderId;
@@ -306,7 +310,7 @@ struct Sound::Impl {
                 UINT32 packet = 0;
                 HRESULT hr = service->GetNextPacketSize(&packet);
                 if (FAILED(hr)) {
-                    // Losing the card is ticket 06; for now the sound stops.
+                    // The Viewer sees Capturing() go false and restarts the sound.
                     Log("Sound: capture failed hr=0x%08lX; sound stopped", Hex(hr));
                     capturing = false;
                     break;
@@ -324,9 +328,19 @@ struct Sound::Impl {
                 }
                 if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) discontinuities++;
                 service->ReleaseBuffer(frames);
+                NoteProbe(stereo.data(), frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0);
                 playout->Push(stereo.data(), frames);
             }
         }
+    }
+
+    void NoteProbe(const float* stereo, UINT32 frames, bool silent) {
+        float peak = 0.0f;
+        for (size_t i = 0; i < 2 * static_cast<size_t>(frames); i++) peak = std::max(peak, std::fabs(stereo[i]));
+        std::lock_guard lock(probeMutex);
+        probe.frames += frames;
+        if (silent) probe.silentFrames += frames;
+        probe.peak = std::max(probe.peak, peak);
     }
 
     // Writes whatever room the output buffer has. False when the device is gone.
@@ -521,6 +535,16 @@ void Sound::Stop() {
     if (impl.capture) impl.capture->client->Stop();
     Log("Sound: stopped");
     impl_.reset();
+}
+
+bool Sound::Capturing() const { return impl_ && impl_->capturing; }
+
+Sound::Probe Sound::TakeProbe() {
+    if (!impl_) return {};
+    std::lock_guard lock(impl_->probeMutex);
+    const Probe taken = impl_->probe;
+    impl_->probe = {};
+    return taken;
 }
 
 }  // namespace gp

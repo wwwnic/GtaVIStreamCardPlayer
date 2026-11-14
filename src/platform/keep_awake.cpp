@@ -15,7 +15,7 @@ void KeepAwake::Second(bool framesArrived) {
         }
         break;
     case StayAwake::Change::Release:
-        Release("no frames for 3 s");
+        Release("no Feed playing for 3 s");
         break;
     case StayAwake::Change::None:
         break;

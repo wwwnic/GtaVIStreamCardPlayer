@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "core/processor.h"
+#include "core/video_area_text.h"
 
 namespace gp {
 
@@ -50,6 +51,15 @@ public:
 
     // Tells the Presenter the window's client size changed. Any thread; returns at once.
     void VideoAreaResized();
+
+    // Shows `text` at `place` in the Video Area, replacing what was there; an
+    // empty text removes it. durationMs > 0: removed by itself after that long
+    // (brief feedback). Drawn even when no frames arrive. Any thread.
+    void ShowText(TextPlace place, VideoAreaText text, int durationMs = 0);
+
+    // false: the Video Area is black behind the texts (a state message is
+    // showing); frames are still taken. Any thread.
+    void ShowPicture(bool visible);
 
     // Counters since the previous call.
     Stats TakeStats();

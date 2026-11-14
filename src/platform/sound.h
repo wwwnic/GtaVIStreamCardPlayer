@@ -1,6 +1,7 @@
 // Sound: plays the Feed's sound through the Windows default output.
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -28,6 +29,18 @@ public:
 
     // Stops and releases both endpoints. Safe to call when not started.
     void Stop();
+
+    // False once capture has failed by itself (the card was unplugged, say).
+    bool Capturing() const;
+
+    // Sound arriving from the card since the previous call (no-signal
+    // investigation, logged once a second).
+    struct Probe {
+        uint32_t frames = 0;        // audio frames captured
+        uint32_t silentFrames = 0;  // of those, flagged silent by Windows
+        float peak = 0.0f;          // largest sample magnitude, 0 to 1
+    };
+    Probe TakeProbe();
 
 private:
     struct Impl;
