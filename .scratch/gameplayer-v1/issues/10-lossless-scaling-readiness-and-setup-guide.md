@@ -4,9 +4,11 @@
 
 **Blocked by:** 04 (Unique Frames and Game Rate detection) and 05 (Fullscreen and window behaviour).
 
-**Status:** needs-plan-review
+**Status:** ready-for-agent
 
-**Gate:** The plan review after ticket 01 has taken place, but this ticket waits for the user's two remaining hand tests on the prototype: a 30 fps game run through the prototype, and Lossless Scaling (LSFG, fixed X2) run on the prototype window. Those results are the main evidence for Part 1 and for upgrading guide steps to confirmed, and may change this ticket. If its status still reads needs-plan-review, stop and ask the user rather than beginning work.
+**Gate outcome:** The user could not find a way to run a game at 30 fps, so bit-identical Repeated Frames at 30 fps remain unverified; ticket 04 is built with a tunable tolerance and diagnostic logging instead. The user will judge Lossless Scaling by taking a 60 fps game to 120 on their 144 Hz monitor.
+
+**Main expected use: 60 to 120.** LSFG fixed X2 on a 60 fps Game Rate, monitor at 144 Hz, is the user's main expected use. The setup guide and its checks (Part 1, the guide's daily-use, expectations and FreeSync sections, and the user checklist) must cover it alongside 30 to 60: for example, a base of 60 and an output of 120 in Lossless Scaling's counter, the delay at a 60 fps base, and whether 120 on a 144 Hz monitor needs the 120 Hz step.
 
 ## Context
 

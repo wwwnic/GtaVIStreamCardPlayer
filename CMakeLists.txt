@@ -30,6 +30,7 @@ add_library(gameplayer_core STATIC
     src/core/luma_summary.cpp
     src/core/audio_controls.cpp
     src/core/feedback_line.cpp
+    src/core/window_shape.cpp
 )
 target_include_directories(gameplayer_core PUBLIC src)
 
@@ -72,6 +73,7 @@ add_executable(gameplayer_tests
     tests/luma_summary_test.cpp
     tests/audio_controls_test.cpp
     tests/feedback_line_test.cpp
+    tests/window_shape_test.cpp
 )
 target_include_directories(gameplayer_tests PRIVATE third_party/doctest)
 target_link_libraries(gameplayer_tests PRIVATE gameplayer_core)

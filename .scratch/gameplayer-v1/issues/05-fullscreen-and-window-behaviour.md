@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (App skeleton showing the Feed picture in a window).
 
-**Status:** ready-for-agent
+**Status:** done (user hand checks pending)
 
 ## Context
 
@@ -23,6 +23,7 @@ Hardware: 1080p 144 Hz FreeSync SDR monitor (the user may have more than one mon
 - **No sleep while a Feed plays**: prevent system sleep and display sleep (and the screensaver) while the Viewer is showing a Feed, since controller input on the Console does not count as PC activity. Use `SetThreadExecutionState` with the system-required and display-required flags, or a power request. Release it when no Feed is playing (no card or no signal) and on exit, so an idle GamePlayer does not keep the PC awake forever.
 - **Single instance**: a second launch activates the existing window (restores it if minimised, brings it to the foreground) and exits. Reason: the Capture Card can be held by one program at a time, so a second instance could never show anything.
 - **Menu bar**: ticket 08 adds a menu bar that must be hidden in fullscreen. Structure the fullscreen switch so that hiding and restoring window chrome is in one place.
+- **Window keeps 16:9** (added after the user's test): while an edge or corner of the windowed window is dragged, the window is held so the Video Area (client area, minus a menu bar if any) stays exactly 16:9, no black bars. Opens with a 16:9 Video Area and has a minimum size. Maximised and fullscreen are unchanged (black bars keep the picture's shape); snaps and programmatic resizes may give other shapes, with black bars as the fallback, never stretching. Done in `core/window_shape.h` (WM_SIZING).
 - **Presentation unchanged**: the swap chain stays flip-model, presenting on arrival; resize the swap chain buffers on the mode change and keep the 16:9 fit with black bars (on a 16:9 monitor the picture fills the screen).
 
 ## Known unknowns
