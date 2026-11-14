@@ -4,9 +4,7 @@
 
 **Blocked by:** 08 (Menu bar).
 
-**Status:** needs-plan-review
-
-**Gate:** Do not start this ticket until the user has reviewed the findings note from ticket 01 (the throwaway prototype) and has confirmed or revised the plan. This ticket may be rewritten at that review; if its status still reads needs-plan-review, stop and ask the user rather than beginning work.
+**Status:** ready-for-agent
 
 ## Context
 
