@@ -18,6 +18,8 @@ Builds the test program and runs it (`build\gameplayer_tests.exe`, doctest). It 
 
     build\GamePlayer.exe
 
+F11 toggles borderless fullscreen; Esc leaves it. Only one copy runs: while one is open, starting another just brings it forward (so a smoke run does nothing while the user's copy is open).
+
 `--run N` closes the app by itself after N seconds, for unattended smoke runs. Each run rewrites `GamePlayer.log` beside the executable: the capture devices found, every mode the card offers, the chosen device and mode, the colour range and matrix read from that mode, then frame counts and the arrival-to-present time (once a second for ten seconds, then once a minute).
 
 ## Module layout
@@ -31,10 +33,14 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `capture_choice.h`: which capture device and which mode to use, with no configuration.
   - `colour.h`: the YUV to RGB numbers for a frame's colour range and matrix.
   - `picture_fit.h`: where the 16:9 picture goes inside the Video Area.
+  - `monitor_choice.h`, `cursor_idle.h`, `stay_awake.h`: which monitor fullscreen covers, when the cursor hides, when to keep the PC awake.
   - `latest_slot.h`: the single-frame hand-off between threads (a newer frame replaces an unshown one).
 - `src/platform/`: the parts that talk to Windows. Not unit-tested; checked by review, the debug log and the user's eyes.
   - `mf_source.*`: the Media Foundation Source Reader implementation of `Source`.
   - `presenter.*`: the `Presenter`. Owns the Direct3D 11 device, the flip-model swap chain, the shaders and its own presenting thread.
+  - `fullscreen.*`: borderless fullscreen (F11, Esc), the hiding cursor, monitor changes. Window chrome is hidden and restored in one place, `ShowChrome`.
+  - `keep_awake.*`: no system or display sleep while a Feed plays.
+  - `single_instance.*`: a second launch brings the running window forward and exits.
   - `log.*`: the debug log.
 - `src/app/main.cpp`: the window and the wiring of Source to Processor to Presenter.
 - `third_party/doctest/`: the vendored test framework (one header).
