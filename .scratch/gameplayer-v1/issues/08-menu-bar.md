@@ -4,15 +4,15 @@
 
 **Blocked by:** 04 (Unique Frames and Game Rate detection), 05 (Fullscreen and window behaviour), 07 (Audio controls).
 
-**Status:** needs-plan-review
-
-**Gate:** Do not start this ticket until the user has reviewed the findings note from ticket 01 (the throwaway prototype) and has confirmed or revised the plan. This ticket may be rewritten at that review; if its status still reads needs-plan-review, stop and ask the user rather than beginning work.
+**Status:** ready-for-agent
 
 ## Context
 
-GamePlayer is a small personal Windows 11 app (the "Viewer") that shows a game Console's picture and sound from a USB Capture Card on the PC monitor. The user described the look they want as "like VLC: just the screen that you can resize and a menu at the top". Read `GLOSSARY.md`, the ADRs in `docs/adr/`, the developer note from ticket 02, and the interfaces left by tickets 04 (frame rate override on the Processor), 05 (fullscreen switch) and 07 (volume, mute, Audio Delay values).
+GamePlayer is a small personal Windows 11 app (the "Viewer") that shows a game Console's picture and sound from a USB Capture Card on the PC monitor. The user described the look they want as "like VLC: just the screen that you can resize and a menu at the top". Read `GLOSSARY.md`, the ADRs in `docs/adr/`, the developer note from ticket 02, the card's real mode list in the prototype's findings note `prototype/FINDINGS.md`, and the interfaces left by tickets 04 (frame rate override on the Processor), 05 (fullscreen switch) and 07 (volume, mute, Audio Delay values).
 
-Hardware: Xbox Series S; AVerMedia Live Gamer Ultra S GC553 Pro over USB (uncompressed capture tops out at 1080p60 in NV12 / YUY2 / RGB24; anything faster or 4K60 is MJPEG only); 1080p 144 Hz FreeSync SDR monitor; AMD Radeon RX 9070; Windows 11.
+Hardware: Xbox Series S; AVerMedia Live Gamer Ultra S GC553 Pro over USB; 1080p 144 Hz FreeSync SDR monitor; AMD Radeon RX 9070; Windows 11.
+
+What the card really offers, from the prototype's log: uncompressed YUY2, NV12, RGB24 and P010 modes at 1080p and 60 fps or below, plus YUY2 at several other resolutions (some only at 50 and 30 fps). Its high modes (1080p240, 1440p and 2560x1080 at 120 and 144, 3440x1440 and 4K at 60) come paired with MJPG and are flagged full range, BT.601, which suggests they are MJPEG-derived. One entry contradicts the research doc's "above 60 fps is MJPEG only": Media Foundation lists an NV12 1080p120 mode that is not paired with MJPG. It has not been tested for streaming. 120 fps is out of scope for v1 regardless, so this changes nothing below; it is recorded so nobody concludes the list is wrong.
 
 ## Decisions already made
 
@@ -21,8 +21,8 @@ Hardware: Xbox Series S; AVerMedia Live Gamer Ultra S GC553 Pro over USB (uncomp
 - **Menu structure** (exact wording may be polished; keep it this small):
   - **Device**
     - *Capture Card*: a list of the video capture devices present, with a check mark on the one in use. Selecting another switches to it immediately (video and sound restart together). The automatic choice (prefer the GC553 Pro, otherwise the first device) remains the default.
-    - *Resolution*: "Default (1080p)" plus a list of the resolutions the current card offers. Selecting one switches the capture mode. Only offer modes that are uncompressed and at most 60 fps; do not list MJPEG modes. The user's wish for "auto" resolution was settled as: default to 1080p60, with this list as the manual override, because capture cards do not reliably report the incoming signal's resolution. The Console's own output resolution is set on the Xbox; the Viewer cannot command it.
-    - *Frame rate*: Auto (default), 30, 60. This is the Processor override from ticket 04, not a capture mode: capture always runs at 60. Auto drops Repeated Frames as detected; 60 presents every captured frame; 30 presents at most every other frame. There is no 120 or 144 entry: the card only offers above-60 modes as MJPEG, which costs quality and Latency.
+    - *Resolution*: "Default (1080p)" plus a list of the resolutions the current card offers. Selecting one switches the capture mode. Only offer modes that are uncompressed and at most 60 fps; do not list MJPEG modes, and do not list the NV12 1080p120 mode or any other mode above 60 fps even if it looks uncompressed. Colour range and matrix differ between modes, so a switched mode must use the range and matrix from its own media type (ticket 02's shader reads them; confirm it still does after a switch). The user's wish for "auto" resolution was settled as: default to 1080p60, with this list as the manual override, because capture cards do not reliably report the incoming signal's resolution. The Console's own output resolution is set on the Xbox; the Viewer cannot command it.
+    - *Frame rate*: Auto (default), 30, 60. This is the Processor override from ticket 04, not a capture mode: capture always runs at 60. Auto drops Repeated Frames as detected; 60 presents every captured frame; 30 presents at most every other frame. There is no 120 or 144 entry: 120 fps and above is out of scope for v1 (the card's above-60 modes are mostly MJPEG, which costs quality and Latency, and its one uncompressed-looking 120 mode is untested).
   - **Audio**
     - *Volume up*, *Volume down*, *Mute* (checkable), showing their hotkeys (Up, Down, M).
     - *Audio Delay*: increase / decrease in 50 ms steps (K / J), the current value shown, and a reset to 0.
@@ -32,7 +32,7 @@ Hardware: Xbox Series S; AVerMedia Live Gamer Ultra S GC553 Pro over USB (uncomp
     - *Always on top* (checkable, default off). Applies in windowed mode.
     - *V-sync* (checkable, **default off**). Off means each frame is presented the moment it is ready, with tearing allowed, so the FreeSync monitor follows the Viewer's pace: lowest delay, no visible tearing. On means presents wait for the monitor's refresh (sync interval 1, no tearing flag), which adds a little delay and is there only as a fallback if the user sees tearing or stutter. The user asked for this to be optional and otherwise left the choice to us; off is the recommended default.
   - **Help**
-    - *Hotkeys*: lists F11 (fullscreen), Esc (leave fullscreen), M (mute), Up / Down (volume), J / K (Audio Delay minus / plus 50 ms).
+    - *Hotkeys*: lists F11 (fullscreen), Esc (leave fullscreen), M (mute), Up / Down (volume), J / K (Audio Delay minus / plus 50 ms), F (FPS counter, from ticket 04).
     - *About*: app name and version, and the current status in a few lines: device in use, capture mode, Signal Rate, Game Rate. This doubles as the user's way to read the arriving / unique numbers. A simple standard dialog or message box is fine for both Help items.
 - **Menu items reflect live state**: check marks and the Audio Delay value are correct whenever a menu opens, including after hotkey changes.
 - **Changing a setting applies immediately**, with no "apply" step and no restart. Switching device or resolution goes through the same start-up path as launch, so the Video Area states from ticket 06 (if present) show loading and errors.
@@ -56,13 +56,13 @@ Saving any of this between runs (09); toolbars, status bars, context menus, a se
 
 - [ ] A native menu bar with Device, Audio, View and Help menus is shown in windowed mode and hidden in fullscreen; it returns when leaving fullscreen.
 - [ ] Device > Capture Card lists present video capture devices, marks the active one, and switches device on selection with picture and sound restarting together.
-- [ ] Device > Resolution offers a default of 1080p plus the current card's uncompressed modes at 60 fps or below, and switching works or falls back cleanly on failure.
+- [ ] Device > Resolution offers a default of 1080p plus the current card's uncompressed modes at 60 fps or below (never MJPEG, never the NV12 1080p120 mode), and switching works or falls back cleanly on failure.
 - [ ] Device > Frame rate offers Auto, 30 and 60 and drives the Processor override; no 120 or 144 entry exists.
 - [ ] Audio menu items change volume, mute and Audio Delay and stay in agreement with the hotkeys.
 - [ ] View > Fullscreen behaves exactly like F11.
 - [ ] View > Always on top keeps the windowed Viewer above other windows when checked.
 - [ ] View > V-sync is off by default (present on arrival, tearing allowed); checking it switches to refresh-synchronised presentation immediately, and unchecking switches back.
-- [ ] Help > Hotkeys lists the seven hotkeys; Help > About shows name, version, device, capture mode, Signal Rate and Game Rate.
+- [ ] Help > Hotkeys lists the eight hotkeys (including F); Help > About shows name, version, device, capture mode, Signal Rate and Game Rate.
 - [ ] Check marks and displayed values are correct every time a menu opens.
 - [ ] The Feed keeps playing, picture and sound, while a menu is open and while the window is dragged.
 - [ ] The Video Area keeps the 16:9 fit below the menu bar.

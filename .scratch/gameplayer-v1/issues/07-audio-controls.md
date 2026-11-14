@@ -4,9 +4,7 @@
 
 **Blocked by:** 03 (Feed sound).
 
-**Status:** needs-plan-review
-
-**Gate:** Do not start this ticket until the user has reviewed the findings note from ticket 01 (the throwaway prototype) and has confirmed or revised the plan. This ticket may be rewritten at that review; if its status still reads needs-plan-review, stop and ask the user rather than beginning work.
+**Status:** ready-for-agent
 
 ## Context
 
@@ -20,12 +18,12 @@ The audio path from ticket 03: WASAPI capture from the Capture Card's endpoint, 
   - Up / Down: volume up / down in steps of 5 percentage points, range 0-100%.
   - M: toggle mute. Muting keeps the volume value; unmuting restores it.
   - J: Audio Delay minus 50 ms. K: Audio Delay plus 50 ms. (This mirrors VLC, which the user knows.)
-  - The complete v1 hotkey set is F11, Esc, M, Up, Down, J, K. Add no others.
+  - The complete v1 hotkey set is F11, Esc, M, Up, Down, J, K, plus F for the FPS counter from ticket 04. Add no others.
 - **Volume is the app's own level**, applied to the Viewer's audio stream (the app's sample gain or its per-app session volume), not the Windows master volume. Default 100%.
 - **Audio Delay semantics**: a positive value makes the sound play later. Default 0 ms. Range 0 to +500 ms in 50 ms steps.
   - Negative values are not possible in a meaningful way: the sound cannot be played before it arrives, and the Viewer deliberately never delays the picture (delaying video would add Latency, which is the one thing this app must not do). So J at 0 ms stays at 0 ms and the feedback says so (for example "Audio delay 0 ms (minimum)"). This is a judgement recorded here so nobody implements a video delay to make negative values work.
 - **Implementation of Audio Delay**: extra buffered audio added on top of the drift-corrected target fill from ticket 03. Changing the delay must not produce a loud click; a brief, quiet transition (short fade or a moment of silence while the buffer adjusts) is acceptable. Drift correction keeps working around the new target.
-- **On-screen feedback**: one short line of text in the Video Area, visible for about 1.5 seconds after the last key press, then gone. Repeated presses update the same line rather than stacking. It must not cover the centre of the picture; a corner is right. If ticket 06 has already built text drawing for the Video Area, reuse it; otherwise build the minimal text drawing here (DirectWrite / Direct2D into the swap chain) in a way ticket 06 can reuse.
+- **On-screen feedback**: one short line of text in the Video Area, visible for about 1.5 seconds after the last key press, then gone. Repeated presses update the same line rather than stacking. It must not cover the centre of the picture; a corner is right, but not the top-left, which ticket 04's FPS counter uses. If ticket 06 or ticket 04 (its FPS counter) has already built text drawing for the Video Area, reuse it; otherwise build the minimal text drawing here (DirectWrite / Direct2D into the swap chain) in a way ticket 06 can reuse.
 - **Persistence is not part of this ticket.** Ticket 09 saves volume, mute and Audio Delay. Expose them through the audio module's interface as plain get / set values so ticket 08 (menu) and ticket 09 (settings) can use them.
 - **Pure logic is unit tested**: stepping and clamping of volume and Audio Delay, mute toggling that preserves volume, and the feedback line's show / hide timing (with the clock injected).
 
