@@ -37,7 +37,8 @@ struct SoundEndpointChoice {
 
 // Among endpoints whose name contains the Capture Card's name, one with
 // "HDMI" in its name wins, else the first. If none contains the card's name,
-// the first whose name suggests a capture device. An endpoint named
+// the first whose name suggests a capture device (never a microphone or a
+// virtual device). An endpoint named
 // "Not To Use ..." is never chosen. Names compare ignoring letter case.
 // Empty when nothing qualifies.
 std::optional<SoundEndpointChoice> ChooseSoundEndpoint(std::span<const std::wstring> endpointNames,

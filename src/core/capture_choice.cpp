@@ -66,6 +66,7 @@ std::optional<SoundEndpointChoice> ChooseSoundEndpoint(std::span<const std::wstr
     for (size_t i = 0; i < endpointNames.size(); i++) {
         const std::wstring& name = endpointNames[i];
         if (ContainsIgnoringCase(name, L"not to use")) continue;
+        if (ContainsIgnoringCase(name, L"microphone") || ContainsIgnoringCase(name, L"virtual")) continue;
         for (std::wstring_view hint : kCaptureHints) {
             if (ContainsIgnoringCase(name, hint)) return SoundEndpointChoice{i, false};
         }

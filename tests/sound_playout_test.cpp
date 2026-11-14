@@ -37,10 +37,20 @@ TEST_CASE("playback stays silent until the target fill would remain after the pe
 
     playout.Push(Ramp(kTargetFrames48k + 50, 60).data(), 60);
     playout.Pull(out.data(), 100);
-    CHECK(out[0] == doctest::Approx(0.0));
-    CHECK(out[1] == doctest::Approx(0.0));
-    CHECK(out[2 * 99] == doctest::Approx(0.099).epsilon(0.001));
-    CHECK(out[2 * 99 + 1] == doctest::Approx(-0.099).epsilon(0.001));
+    // 102 frames make a period of 100 here; the 8 oldest frames beyond the
+    // target were dropped, and the rest plays in order.
+    CHECK(out[0] == doctest::Approx(0.008));
+    CHECK(out[1] == doctest::Approx(-0.008));
+    CHECK(out[2 * 99] == doctest::Approx(0.107).epsilon(0.001));
+    CHECK(out[2 * 99 + 1] == doctest::Approx(-0.107).epsilon(0.001));
+}
+
+TEST_CASE("playback starts with no more than the target fill, so no extra delay is carried") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> out(2 * 100);
+    playout.Push(Ramp(0, kTargetFrames48k + 400).data(), kTargetFrames48k + 400);  // a big first packet
+    playout.Pull(out.data(), 100);
+    CHECK(playout.TakeStats().fillAverageSeconds == doctest::Approx(SoundPlayout::kTargetFillSeconds));
 }
 
 TEST_CASE("when the buffer runs dry (underrun) playback goes silent and waits for the target fill again") {

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <functional>
+#include <string>
 
 #include "core/frame.h"
 
@@ -27,6 +28,10 @@ public:
     // Stops capture and releases the device. The sink is not called after
     // Stop returns. Safe to call when not started.
     virtual void Stop() = 0;
+
+    // Name of the Capture Card chosen by Start, even if it could not be
+    // opened; empty when there is none. The sound is found by this name.
+    virtual std::wstring DeviceName() const = 0;
 };
 
 }  // namespace gp

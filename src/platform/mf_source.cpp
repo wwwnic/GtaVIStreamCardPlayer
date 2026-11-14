@@ -269,6 +269,8 @@ public:
         }
     }
 
+    std::wstring DeviceName() const override { return deviceName_; }
+
 private:
     bool OpenDevice() {
         ComPtr<IMFAttributes> query;
@@ -294,6 +296,7 @@ private:
         const std::optional<size_t> chosen = ChooseCaptureDevice(names);
         if (chosen) {
             Log("Source: chosen device [%zu] \"%s\"", *chosen, ToUtf8(names[*chosen]).c_str());
+            deviceName_ = names[*chosen];
             hr = devices[*chosen]->ActivateObject(IID_PPV_ARGS(&device_));
             if (FAILED(hr)) {
                 Log("Source: could not open the device hr=0x%08lX (another program may be using it)",
@@ -374,6 +377,7 @@ private:
     }
 
     bool mfStarted_ = false;
+    std::wstring deviceName_;
     ComPtr<IMFMediaSource> device_;
     ComPtr<ReaderCallback> callback_;
 };
