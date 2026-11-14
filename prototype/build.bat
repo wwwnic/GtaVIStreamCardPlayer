@@ -8,6 +8,6 @@ popd
 if not defined VSROOT (echo MSVC not found & exit /b 1)
 call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 if not exist "%~dp0out" mkdir "%~dp0out"
-cl /nologo /std:c++17 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /Fo"%~dp0out\\" /Fe"%~dp0out\gameplayer-prototype.exe" "%~dp0main.cpp" ^
+cl /nologo /std:c++17 /EHsc /O2 /W4 /DUNICODE /D_UNICODE /Fo"%~dp0out\\" /Fe"%~dp0out\%~1gameplayer-prototype.exe" "%~dp0main.cpp" ^
   /link /SUBSYSTEM:WINDOWS d3d11.lib dxgi.lib d3dcompiler.lib mfplat.lib mf.lib mfreadwrite.lib mfuuid.lib ole32.lib oleaut32.lib user32.lib gdi32.lib shell32.lib avrt.lib uuid.lib
 exit /b %errorlevel%

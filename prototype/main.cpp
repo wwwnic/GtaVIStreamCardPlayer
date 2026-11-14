@@ -512,6 +512,47 @@ float4 ps(VO i) : SV_Target {
 }
 )";
 
+// ---- on-screen fps overlay: tiny built-in 5x7 font, drawn only inside frames that are presented anyway
+static std::atomic<bool> g_osd{true};
+static const int OSD_W = 9 * 6 + 1, OSD_H = 9;   // up to "120 / 120"
+static uint8_t g_osdPix[OSD_W * OSD_H];
+static bool g_osdDirty = true;
+static ComPtr<ID3D11Texture2D> g_osdTex;
+static ComPtr<ID3D11ShaderResourceView> g_osdSrv;
+static ComPtr<ID3D11PixelShader> g_psOsd;
+static ComPtr<ID3D11BlendState> g_blend;
+
+static const char* kOsdShader = R"(
+Texture2D<float> t0 : register(t0);
+struct VO { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+float4 ps(VO i) : SV_Target {
+    float v = t0.Load(int3(clamp(int2(i.uv * float2(55, 9)), int2(0, 0), int2(54, 8)), 0));
+    return float4(v, v, v, 0.55 + 0.45 * v);
+}
+)";
+
+static const char* kGlyph[12][7] = {
+    {"01110","10001","10011","10101","11001","10001","01110"}, {"00100","01100","00100","00100","00100","00100","01110"},
+    {"01110","10001","00001","00010","00100","01000","11111"}, {"11110","00001","00001","01110","00001","00001","11110"},
+    {"00010","00110","01010","10010","11111","00010","00010"}, {"11111","10000","11110","00001","00001","10001","01110"},
+    {"00110","01000","10000","11110","10001","10001","01110"}, {"11111","00001","00010","00100","01000","01000","01000"},
+    {"01110","10001","10001","01110","10001","10001","01110"}, {"01110","10001","10001","01111","00001","00010","01100"},
+    {"00001","00010","00010","00100","01000","01000","10000"}, {"00000","00000","00000","00000","00000","00000","00000"}};
+
+static void BuildOsd(unsigned u, unsigned a) {
+    char s[32];
+    snprintf(s, sizeof s, "%u / %u", u, a);
+    memset(g_osdPix, 0, sizeof g_osdPix);
+    int x = 1;
+    for (const char* c = s; *c && x + 5 <= OSD_W; c++, x += 6) {
+        int gi = (*c >= '0' && *c <= '9') ? *c - '0' : (*c == '/') ? 10 : 11;
+        for (int r = 0; r < 7; r++)
+            for (int q = 0; q < 5; q++)
+                if (kGlyph[gi][r][q] == '1') g_osdPix[(r + 1) * OSD_W + x + q] = 255;
+    }
+    g_osdDirty = true;
+}
+
 static void CreateRtv() {
     ComPtr<ID3D11Texture2D> bb;
     g_sc->GetBuffer(0, IID_PPV_ARGS(&bb));
@@ -560,6 +601,24 @@ static bool InitD3D() {
     if (FAILED(hr)) { Log("PS compile failed: %s", err ? (char*)err->GetBufferPointer() : "?"); return false; }
     g_dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_vs);
     g_dev->CreatePixelShader(pb->GetBufferPointer(), pb->GetBufferSize(), nullptr, &g_ps);
+    {
+        ComPtr<ID3DBlob> ob;
+        if (SUCCEEDED(D3DCompile(kOsdShader, strlen(kOsdShader), "osd", nullptr, nullptr, "ps", "ps_5_0", 0, 0, &ob, &err))) {
+            g_dev->CreatePixelShader(ob->GetBufferPointer(), ob->GetBufferSize(), nullptr, &g_psOsd);
+            D3D11_TEXTURE2D_DESC od = {};
+            od.Width = OSD_W; od.Height = OSD_H; od.MipLevels = 1; od.ArraySize = 1; od.Format = DXGI_FORMAT_R8_UNORM;
+            od.SampleDesc.Count = 1; od.Usage = D3D11_USAGE_DEFAULT; od.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            g_dev->CreateTexture2D(&od, nullptr, &g_osdTex);
+            g_dev->CreateShaderResourceView(g_osdTex.Get(), nullptr, &g_osdSrv);
+            D3D11_BLEND_DESC bl = {};
+            bl.RenderTarget[0].BlendEnable = TRUE;
+            bl.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA; bl.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+            bl.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD; bl.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+            bl.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO; bl.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+            bl.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+            g_dev->CreateBlendState(&bl, &g_blend);
+        } else Log("OSD shader compile failed; overlay disabled");
+    }
 
     if (g_haveVideo) {
         struct { float w, h; UINT fmt, full, m709, p[3]; } cbd = { (float)g_vw, (float)g_vh, (UINT)g_fmt, g_fullRange, g_m709, {0, 0, 0} };
@@ -611,6 +670,17 @@ static void Draw(bool newFrame) {
         ID3D11ShaderResourceView* srvs[2] = { g_srv0.Get(), g_srv1.Get() };
         g_ctx->PSSetShaderResources(0, 2, srvs);
         g_ctx->Draw(3, 0);
+        if (g_osd && g_psOsd && g_osdTex) {
+            if (g_osdDirty) { g_ctx->UpdateSubresource(g_osdTex.Get(), 0, nullptr, g_osdPix, OSD_W, 0); g_osdDirty = false; }
+            float sc = (float)(int)(vh / 180.f); if (sc < 2.f) sc = 2.f;
+            D3D11_VIEWPORT ov = { vp.TopLeftX + 10.f, vp.TopLeftY + 10.f, OSD_W * sc, OSD_H * sc, 0, 1 };
+            g_ctx->RSSetViewports(1, &ov);
+            g_ctx->PSSetShader(g_psOsd.Get(), nullptr, 0);
+            ID3D11ShaderResourceView* os = g_osdSrv.Get(); g_ctx->PSSetShaderResources(0, 1, &os);
+            g_ctx->OMSetBlendState(g_blend.Get(), nullptr, 0xFFFFFFFF);
+            g_ctx->Draw(3, 0);
+            g_ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+        }
     }
     g_sc->Present(0, g_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
     c_presented++;
@@ -658,6 +728,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (w == VK_F11) ToggleFullscreen();
         else if (w == VK_ESCAPE && g_full) ToggleFullscreen();
         else if (w == 'D') { bool v = !g_drop.load(); g_drop = v; Log("Repeated Frame dropping: %s", v ? "ON" : "OFF"); }
+        else if (w == 'F') { bool v = !g_osd.load(); g_osd = v; Log("FPS overlay: %s (shows on next presented frame)", v ? "ON" : "OFF"); }
         else if (w == 'T') { bool v = !g_tol.load(); g_tol = v; Log("Near-duplicate tolerance: %s", v ? "ON" : "OFF"); }
         return 0;
     case WM_DESTROY: g_quit = true; PostQuitMessage(0); return 0;
@@ -672,9 +743,10 @@ static void Stats(double secs) {
     double k = 1.0 / secs;
     Log("STATS arrived=%.1f/s unique=%.1f/s repeated=%.1f/s nearDup=%.1f/s replaced=%.1f/s presented=%.1f/s | audio ring fill=%.1f ms underruns=%u overruns=%u | drop=%s tol=%s",
         a * k, u * k, r * k, nr * k, rp * k, pr * k, fill / 48.0, uf, of, g_drop ? "on" : "off", g_tol ? "on" : "off");
+    BuildOsd((unsigned)(u * k + 0.5), (unsigned)(a * k + 0.5));
     wchar_t t[256];
-    swprintf(t, 256, L"GamePlayer PROTOTYPE | arrived %.0f  unique %.0f | drop %s | %S%S",
-             a * k, u * k, g_drop ? L"ON" : L"OFF", g_status.c_str(), g_audioOk ? "" : " | no audio");
+    swprintf(t, 256, L"GamePlayer PROTOTYPE | arrived %.0f  unique %.0f | drop %s (D) | fps overlay %s (F) | %S%S",
+             a * k, u * k, g_drop ? L"ON" : L"OFF", g_osd ? L"ON" : L"OFF", g_status.c_str(), g_audioOk ? "" : " | no audio");
     SetWindowTextW(g_hwnd, t);
 }
 
