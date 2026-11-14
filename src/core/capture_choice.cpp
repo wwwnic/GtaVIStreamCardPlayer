@@ -47,4 +47,30 @@ std::optional<size_t> ChooseCaptureMode(std::span<const CaptureMode> modes) {
     return best;
 }
 
+std::optional<SoundEndpointChoice> ChooseSoundEndpoint(std::span<const std::wstring> endpointNames,
+                                                       const std::wstring& cardName) {
+    std::wstring card = cardName;
+    for (wchar_t& c : card) c = static_cast<wchar_t>(std::towlower(c));
+    std::optional<size_t> firstMatch;
+    for (size_t i = 0; i < endpointNames.size(); i++) {
+        const std::wstring& name = endpointNames[i];
+        if (ContainsIgnoringCase(name, L"not to use")) continue;
+        if (card.empty() || !ContainsIgnoringCase(name, card)) continue;
+        if (ContainsIgnoringCase(name, L"hdmi")) return SoundEndpointChoice{i, true};
+        if (!firstMatch) firstMatch = i;
+    }
+    if (firstMatch) return SoundEndpointChoice{*firstMatch, true};
+    // Names that suggest a capture device rather than a microphone.
+    const std::wstring_view kCaptureHints[] = {L"hdmi", L"capture", L"gc553", L"live gamer", L"avermedia",
+                                               L"elgato", L"cam link"};
+    for (size_t i = 0; i < endpointNames.size(); i++) {
+        const std::wstring& name = endpointNames[i];
+        if (ContainsIgnoringCase(name, L"not to use")) continue;
+        for (std::wstring_view hint : kCaptureHints) {
+            if (ContainsIgnoringCase(name, hint)) return SoundEndpointChoice{i, false};
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace gp

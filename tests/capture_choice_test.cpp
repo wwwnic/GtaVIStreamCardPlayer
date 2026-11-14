@@ -33,6 +33,79 @@ TEST_CASE("with no capture devices nothing is chosen") {
     CHECK(ChooseCaptureDevice({}) == std::nullopt);
 }
 
+namespace {
+const std::wstring kCard = L"Live Gamer ULTRA S GC553Pro";
+}
+
+TEST_CASE("the card's HDMI sound endpoint is chosen even when \"Not To Use\" is listed first") {
+    std::vector<std::wstring> endpoints = {
+        L"Microphone (Realtek Audio)",
+        L"Not To Use (Live Gamer ULTRA S GC553Pro)",
+        L"HDMI (Live Gamer ULTRA S GC553Pro)",
+    };
+    const auto choice = gp::ChooseSoundEndpoint(endpoints, kCard);
+    REQUIRE(choice);
+    CHECK(choice->index == 2);
+    CHECK(choice->byCardName);
+}
+
+TEST_CASE("the card's HDMI sound endpoint is chosen when listed first too") {
+    std::vector<std::wstring> endpoints = {
+        L"HDMI (Live Gamer ULTRA S GC553Pro)",
+        L"Not To Use (Live Gamer ULTRA S GC553Pro)",
+    };
+    const auto choice = gp::ChooseSoundEndpoint(endpoints, kCard);
+    REQUIRE(choice);
+    CHECK(choice->index == 0);
+}
+
+TEST_CASE("\"Not To Use\" is never chosen, even when it is the only endpoint matching the card") {
+    std::vector<std::wstring> endpoints = {
+        L"Microphone (Realtek Audio)",
+        L"Not To Use (Live Gamer ULTRA S GC553Pro)",
+    };
+    CHECK(gp::ChooseSoundEndpoint(endpoints, kCard) == std::nullopt);
+}
+
+TEST_CASE("without an HDMI endpoint the first endpoint matching the card is chosen, ignoring case") {
+    std::vector<std::wstring> endpoints = {
+        L"Microphone (Realtek Audio)",
+        L"not to use (live gamer ultra s gc553pro)",
+        L"Line (live gamer ultra s gc553pro)",
+        L"Other (Live Gamer ULTRA S GC553Pro)",
+    };
+    const auto choice = gp::ChooseSoundEndpoint(endpoints, kCard);
+    REQUIRE(choice);
+    CHECK(choice->index == 2);
+    CHECK(choice->byCardName);
+}
+
+TEST_CASE("when no endpoint matches the card, the first that looks like a capture device is the fallback") {
+    std::vector<std::wstring> endpoints = {
+        L"Microphone (Realtek Audio)",
+        L"Not To Use (Some Capture Card)",
+        L"HDMI (Some Capture Card)",
+    };
+    const auto choice = gp::ChooseSoundEndpoint(endpoints, kCard);
+    REQUIRE(choice);
+    CHECK(choice->index == 2);
+    CHECK_FALSE(choice->byCardName);
+}
+
+TEST_CASE("the fallback also works when no Capture Card name is known") {
+    std::vector<std::wstring> endpoints = {L"Microphone (Realtek Audio)", L"Digital Audio Interface (USB Capture)"};
+    const auto choice = gp::ChooseSoundEndpoint(endpoints, L"");
+    REQUIRE(choice);
+    CHECK(choice->index == 1);
+    CHECK_FALSE(choice->byCardName);
+}
+
+TEST_CASE("a plain microphone is never chosen as the Feed sound") {
+    std::vector<std::wstring> endpoints = {L"Microphone (Realtek Audio)", L"Headset Microphone (USB Headset)"};
+    CHECK(gp::ChooseSoundEndpoint(endpoints, kCard) == std::nullopt);
+    CHECK(gp::ChooseSoundEndpoint({}, kCard) == std::nullopt);
+}
+
 TEST_CASE("YUY2 1080p60 is chosen over NV12 1080p60 wherever it sits in the list") {
     std::vector<CaptureMode> modes = {
         {PixelFormat::NV12, 1920, 1080, 60, 1},
