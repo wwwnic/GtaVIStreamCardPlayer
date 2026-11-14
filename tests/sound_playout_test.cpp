@@ -89,6 +89,125 @@ TEST_CASE("when sound piles up (overrun) the buffer drops back to the target, ke
 }
 
 namespace {
+// A playout that is already playing steady sound of 0.5 on both channels.
+void StartPlaying(SoundPlayout& playout, std::vector<float>& out, size_t period) {
+    std::vector<float> in(2 * (kTargetFrames48k + 2 * period), 0.5f);
+    playout.Push(in.data(), kTargetFrames48k + 2 * period);
+    playout.Pull(out.data(), period);
+}
+
+void PushSteady(SoundPlayout& playout, size_t frames) {
+    std::vector<float> in(2 * frames, 0.5f);
+    playout.Push(in.data(), frames);
+}
+}  // namespace
+
+TEST_CASE("a new gain fades in over one period, then applies to all the sound") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> out(2 * 100);
+    StartPlaying(playout, out, 100);
+    CHECK(out[0] == doctest::Approx(0.5));
+
+    playout.SetGain(0.2f);
+    PushSteady(playout, 100);
+    playout.Pull(out.data(), 100);
+    CHECK(out[0] > 0.45f);  // no jump at the start of the period
+    CHECK(out[2 * 99] == doctest::Approx(0.1));
+    PushSteady(playout, 100);
+    playout.Pull(out.data(), 100);
+    CHECK(out[0] == doctest::Approx(0.1));
+    CHECK(out[2 * 99 + 1] == doctest::Approx(0.1));
+}
+
+TEST_CASE("muting (gain 0) fades out and then plays silence") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> out(2 * 100);
+    StartPlaying(playout, out, 100);
+    playout.SetGain(0.0f);
+    PushSteady(playout, 100);
+    playout.Pull(out.data(), 100);
+    CHECK(out[0] > 0.45f);
+    PushSteady(playout, 100);
+    playout.Pull(out.data(), 100);
+    CHECK(AllSilent(out));
+}
+
+TEST_CASE("the buffer target is the base fill plus the Audio Delay, within the room the buffer has") {
+    SoundPlayout playout(48000, 48000);
+    CHECK(playout.TargetFillSeconds() == doctest::Approx(SoundPlayout::kTargetFillSeconds));
+    playout.SetAudioDelay(0.2);
+    CHECK(playout.TargetFillSeconds() == doctest::Approx(SoundPlayout::kTargetFillSeconds + 0.2));
+    playout.SetAudioDelay(-0.1);
+    CHECK(playout.TargetFillSeconds() == doctest::Approx(SoundPlayout::kTargetFillSeconds));
+    playout.SetAudioDelay(5.0);
+    CHECK(playout.TargetFillSeconds() == doctest::Approx(SoundPlayout::kLongestTargetSeconds));
+}
+
+TEST_CASE("a longer Audio Delay fades the sound out, waits quietly for the longer fill, then fades back in") {
+    SoundPlayout playout(48000, 48000);
+    const size_t period = 480;
+    std::vector<float> out(2 * period);
+    StartPlaying(playout, out, period);
+    playout.TakeStats();
+
+    playout.SetAudioDelay(0.1);
+    PushSteady(playout, period);
+    playout.Pull(out.data(), period);
+    CHECK(out[0] > 0.45f);                       // starts where the sound was
+    CHECK(out[2 * (period - 1)] < 0.01f);        // and ends near silence: no click
+    int silentPeriods = 0;
+    for (;;) {
+        PushSteady(playout, period);
+        playout.Pull(out.data(), period);
+        if (!AllSilent(out)) break;
+        silentPeriods++;
+        REQUIRE(silentPeriods < 100);
+    }
+    CHECK(silentPeriods >= 9);  // about 100 ms of sound gathered while quiet
+    CHECK(out[0] < 0.05f);      // fades in
+    CHECK(out[2 * (period - 1)] == doctest::Approx(0.5));
+    playout.TakeStats();
+    PushSteady(playout, period);
+    playout.Pull(out.data(), period);
+    const SoundPlayout::Stats stats = playout.TakeStats();
+    CHECK(stats.fillAverageSeconds == doctest::Approx(0.115).epsilon(0.02));
+    CHECK(stats.overruns == 0);
+    CHECK(stats.underruns == 0);
+}
+
+TEST_CASE("a shorter Audio Delay fades out, drops the extra sound while quiet, and fades in at the shorter fill") {
+    SoundPlayout playout(48000, 48000);
+    const size_t period = 480;
+    std::vector<float> out(2 * period);
+    playout.SetAudioDelay(0.2);
+    const size_t start = static_cast<size_t>(0.215 * 48000) + period + 10;
+    PushSteady(playout, start);
+    playout.Pull(out.data(), period);
+    CHECK_FALSE(AllSilent(out));
+
+    playout.SetAudioDelay(0.0);
+    PushSteady(playout, period);
+    playout.Pull(out.data(), period);
+    CHECK(out[2 * (period - 1)] < 0.01f);
+    int silentPeriods = 0;
+    for (;;) {
+        PushSteady(playout, period);
+        playout.Pull(out.data(), period);
+        if (!AllSilent(out)) break;
+        silentPeriods++;
+        REQUIRE(silentPeriods < 100);
+    }
+    CHECK(silentPeriods <= 1);  // plenty buffered: restarts almost at once
+    CHECK(out[0] < 0.05f);
+    CHECK(out[2 * (period - 1)] == doctest::Approx(0.5));
+    const SoundPlayout::Stats stats = playout.TakeStats();
+    CHECK(stats.overruns == 0);
+    PushSteady(playout, period);
+    playout.Pull(out.data(), period);
+    CHECK(playout.TakeStats().fillAverageSeconds == doctest::Approx(SoundPlayout::kTargetFillSeconds).epsilon(0.02));
+}
+
+namespace {
 struct Session {
     unsigned underruns = 0;
     unsigned overruns = 0;
@@ -97,15 +216,18 @@ struct Session {
 
 // Capture delivers 10 ms packets on the card's clock (`cardSpeed` times
 // nominal); playback pulls 10 ms periods on the output device's clock.
-Session Simulate(uint32_t inputRate, uint32_t outputRate, double cardSpeed, int minutes) {
+// `audioDelay` is set 30 seconds in, while playing.
+Session Simulate(uint32_t inputRate, uint32_t outputRate, double cardSpeed, int minutes, double audioDelay = 0.0) {
     SoundPlayout playout(inputRate, outputRate);
+    const double target = SoundPlayout::kTargetFillSeconds + audioDelay;
     Session session;
     std::vector<float> in(2 * inputRate / 50, 0.25f);
     std::vector<float> out(2 * outputRate / 100);
     double owed = 0.0;
     const int periods = minutes * 60 * 100;
     for (int i = 0; i < periods; i++) {
-        owed += inputRate / 100.0 * cardSpeed;
+        if (i == 3000 && audioDelay > 0.0) playout.SetAudioDelay(audioDelay);
+        owed +=inputRate / 100.0 * cardSpeed;
         if (owed >= inputRate / 100.0) {  // the packet arrives whole
             const size_t frames = static_cast<size_t>(owed);
             playout.Push(in.data(), frames);
@@ -118,7 +240,7 @@ Session Simulate(uint32_t inputRate, uint32_t outputRate, double cardSpeed, int 
                 session.underruns += stats.underruns;
                 session.overruns += stats.overruns;
                 session.worstFillError = std::fmax(session.worstFillError,
-                                                   std::fabs(stats.fillAverageSeconds - SoundPlayout::kTargetFillSeconds));
+                                                   std::fabs(stats.fillAverageSeconds - target));
             }
         }
     }
@@ -138,6 +260,17 @@ TEST_CASE("with the card's clock 300 ppm slow, a long session holds the fill too
     CHECK(session.underruns == 0);
     CHECK(session.overruns == 0);
     CHECK(session.worstFillError < 0.005);
+}
+
+TEST_CASE("after the Audio Delay changes, drift correction holds the fill at the shifted target") {
+    const Session fast = Simulate(48000, 48000, 1.0003, 20, 0.3);
+    CHECK(fast.underruns == 0);
+    CHECK(fast.overruns == 0);
+    CHECK(fast.worstFillError < 0.005);
+    const Session slow = Simulate(48000, 44100, 0.9997, 20, 0.5);
+    CHECK(slow.underruns == 0);
+    CHECK(slow.overruns == 0);
+    CHECK(slow.worstFillError < 0.005);
 }
 
 TEST_CASE("48 kHz capture plays on a 44.1 kHz output without glitches, and the other way round") {
