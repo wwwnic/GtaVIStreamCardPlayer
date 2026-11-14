@@ -17,6 +17,11 @@ add_library(gameplayer_core STATIC
     src/core/colour.cpp
     src/core/frame.cpp
     src/core/processor.cpp
+    src/core/sound_ring.cpp
+    src/core/drift_correction.cpp
+    src/core/resampler.cpp
+    src/core/pcm.cpp
+    src/core/sound_playout.cpp
 )
 target_include_directories(gameplayer_core PUBLIC src)
 
@@ -39,6 +44,11 @@ add_executable(gameplayer_tests
     tests/latest_slot_test.cpp
     tests/frame_test.cpp
     tests/processor_test.cpp
+    tests/sound_ring_test.cpp
+    tests/drift_correction_test.cpp
+    tests/resampler_test.cpp
+    tests/pcm_test.cpp
+    tests/sound_playout_test.cpp
 )
 target_include_directories(gameplayer_tests PRIVATE third_party/doctest)
 target_link_libraries(gameplayer_tests PRIVATE gameplayer_core)
