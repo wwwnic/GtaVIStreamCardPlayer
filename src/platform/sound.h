@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 
+#include "core/audio_controls.h"
+
 namespace gp {
 
 // Captures the Capture Card's audio endpoint and renders it to the Windows
@@ -12,8 +14,6 @@ namespace gp {
 // sound playout (ring, drift correction, resampling) in between. Follows
 // changes of the default output while running. Logs what it chose and,
 // once a second for ten seconds then once a minute, the buffer fill.
-//
-// Later (ticket 07): set volume, set mute, set Audio Delay.
 class Sound {
 public:
     Sound();
@@ -42,9 +42,23 @@ public:
     };
     Probe TakeProbe();
 
+    // Audio controls, as plain values for the keys, the menu (08) and the
+    // settings (09). The Viewer's own level on its own samples, never the
+    // Windows volume. Call from one thread (the window's). May be set before
+    // Start; kept across Stop. Out-of-range values are clamped.
+    int Volume() const { return settings_.volumePercent; }  // 0-100%
+    void SetVolume(int percent);
+    bool Muted() const { return settings_.muted; }  // keeps the volume
+    void SetMuted(bool muted);
+    int AudioDelayMs() const { return settings_.audioDelayMs; }  // 0-500; later sound
+    void SetAudioDelayMs(int ms);
+
 private:
+    void ApplySettings();
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    AudioSettings settings_;
 };
 
 }  // namespace gp

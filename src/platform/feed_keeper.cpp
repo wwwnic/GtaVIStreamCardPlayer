@@ -27,11 +27,12 @@ int64_t TickNow() { return static_cast<int64_t>(GetTickCount64()); }
 
 }  // namespace
 
-FeedKeeper::FeedKeeper(HWND window, Presenter& presenter)
+FeedKeeper::FeedKeeper(HWND window, Presenter& presenter, Sound& sound)
     : window_(window),
       presenter_(presenter),
       processor_(MakePassThroughProcessor()),
       source_(MakeMediaFoundationSource()),
+      sound_(sound),
       machine_(TickNow()) {}
 
 FeedKeeper::~FeedKeeper() { Stop(); }
