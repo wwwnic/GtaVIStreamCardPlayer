@@ -21,7 +21,8 @@ namespace gp {
 
 class FeedKeeper {
 public:
-    FeedKeeper(HWND window, Presenter& presenter);
+    // Starts and stops `sound` with the picture; its audio settings are the caller's.
+    FeedKeeper(HWND window, Presenter& presenter, Sound& sound);
     ~FeedKeeper();
     FeedKeeper(const FeedKeeper&) = delete;
     FeedKeeper& operator=(const FeedKeeper&) = delete;
@@ -54,7 +55,7 @@ private:
     Presenter& presenter_;
     std::unique_ptr<Processor> processor_;
     std::unique_ptr<Source> source_;
-    Sound sound_;
+    Sound& sound_;
     bool soundRunning_ = false;
     VideoAreaStateMachine machine_;
     VideoAreaState shown_ = VideoAreaState::Loading;

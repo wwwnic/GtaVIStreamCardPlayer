@@ -28,6 +28,8 @@ add_library(gameplayer_core STATIC
     src/core/video_area_state.cpp
     src/core/video_area_text.cpp
     src/core/luma_summary.cpp
+    src/core/audio_controls.cpp
+    src/core/feedback_line.cpp
 )
 target_include_directories(gameplayer_core PUBLIC src)
 
@@ -43,6 +45,7 @@ add_executable(GamePlayer WIN32
     src/platform/sound.cpp
     src/platform/feed_keeper.cpp
     src/platform/text_overlay.cpp
+    src/platform/feedback.cpp
 )
 target_link_libraries(GamePlayer PRIVATE gameplayer_core
     d3d11 dxgi d3dcompiler mfplat mf mfreadwrite mfuuid ole32 user32 gdi32 shell32 avrt d2d1 dwrite)
@@ -67,6 +70,8 @@ add_executable(gameplayer_tests
     tests/video_area_state_test.cpp
     tests/video_area_text_test.cpp
     tests/luma_summary_test.cpp
+    tests/audio_controls_test.cpp
+    tests/feedback_line_test.cpp
 )
 target_include_directories(gameplayer_tests PRIVATE third_party/doctest)
 target_link_libraries(gameplayer_tests PRIVATE gameplayer_core)
