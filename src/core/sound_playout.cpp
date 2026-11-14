@@ -44,10 +44,12 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
     const double nominalStep = static_cast<double>(inputRate_) / outputRate_;
     if (!playing_) {
         resampler_.Reset();
-        if (ring_.Fill() < TargetFrames() + resampler_.InputNeeded(frames, nominalStep)) {
+        const size_t start = TargetFrames() + resampler_.InputNeeded(frames, nominalStep);
+        if (ring_.Fill() < start) {
             RecordFill(static_cast<double>(ring_.Fill()) / inputRate_);
             return;  // still priming
         }
+        ring_.Discard(ring_.Fill() - start);  // start at the target, not with extra delay
         playing_ = true;
         correction_.Reset(TargetSeconds());
         stats_.rate = 1.0;

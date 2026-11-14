@@ -46,7 +46,7 @@ public:
 
     // Fills exactly `frames` output frames: sound when there is enough,
     // otherwise silence. Playback starts once the target fill would remain
-    // after the period.
+    // after the period; older sound beyond that is dropped at the start.
     void Pull(float* stereo, size_t frames);
 
     struct Stats {

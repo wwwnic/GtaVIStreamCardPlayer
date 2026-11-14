@@ -17,6 +17,7 @@
 #include "platform/log.h"
 #include "platform/mf_source.h"
 #include "platform/presenter.h"
+#include "platform/sound.h"
 
 namespace {
 
@@ -141,6 +142,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         });
         if (!capturing) gp::Log("No Feed: the window stays black");
 
+        gp::Sound sound;  // independent of the picture: either may work without the other
+        if (!sound.Start(source->DeviceName())) gp::Log("No Feed sound");
+
         ShowWindow(window, showCommand);
         SetTimer(window, kStatsTimer, 1000, nullptr);
         if (runSeconds) SetTimer(window, kRunTimer, static_cast<UINT>(runSeconds) * 1000, nullptr);
@@ -154,6 +158,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         gp::Log("Closing");
         KillTimer(window, kStatsTimer);
         ShowWindow(window, SW_HIDE);  // disappear at once; teardown follows
+        sound.Stop();
         // Order matters: the Source stops calling into the Processor and
         // Presenter before either goes away.
         source->Stop();

@@ -31,9 +31,10 @@ add_executable(GamePlayer WIN32
     src/platform/log.cpp
     src/platform/mf_source.cpp
     src/platform/presenter.cpp
+    src/platform/sound.cpp
 )
 target_link_libraries(GamePlayer PRIVATE gameplayer_core
-    d3d11 dxgi d3dcompiler mfplat mf mfreadwrite mfuuid ole32 user32 gdi32 shell32)
+    d3d11 dxgi d3dcompiler mfplat mf mfreadwrite mfuuid ole32 user32 gdi32 shell32 avrt)
 
 enable_testing()
 add_executable(gameplayer_tests

@@ -106,6 +106,17 @@ TEST_CASE("a plain microphone is never chosen as the Feed sound") {
     CHECK(gp::ChooseSoundEndpoint({}, kCard) == std::nullopt);
 }
 
+TEST_CASE("with the card unplugged, the fallback skips microphones and virtual devices that only mention the maker") {
+    // The real endpoint list on the user's PC, minus the card's own two.
+    std::vector<std::wstring> endpoints = {
+        L"Réseau de microphones (Voice.ai Audio Cable)",
+        L"Microphone (Realtek USB2.0 Audio)",
+        L"Virtual Microphone (AVerMedia Streaming Center)",
+        L"Microphone (HD Pro Webcam C920)",
+    };
+    CHECK(gp::ChooseSoundEndpoint(endpoints, kCard) == std::nullopt);
+}
+
 TEST_CASE("YUY2 1080p60 is chosen over NV12 1080p60 wherever it sits in the list") {
     std::vector<CaptureMode> modes = {
         {PixelFormat::NV12, 1920, 1080, 60, 1},
