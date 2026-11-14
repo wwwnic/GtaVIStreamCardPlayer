@@ -101,7 +101,7 @@ private:
     // Source's thread only.
     FramePtr reference_;          // the last Unique Frame: each frame is compared with it
     bool referenceShown_ = false; // override 30: false while that frame waits its turn
-    uint32_t sinceEmitted_ = 0;   // captured frames since the last emitted one
+    uint32_t sinceEmitted_ = 2;   // captured frames since the last emitted one
     std::vector<FramePtr> recent_;
 
     std::mutex mutex_;            // guards everything below
