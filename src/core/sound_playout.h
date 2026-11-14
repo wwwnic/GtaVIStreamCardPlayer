@@ -24,8 +24,8 @@ public:
     // glitch-free sound at the lowest delay. It must outlast one late capture
     // packet (10 ms on the GC553 Pro), or the next period runs dry; 15 ms
     // leaves 5 ms of margin. (The prototype started playback with 10 ms but
-    // had no drift correction and ran only seconds.) Audio Delay (ticket 07)
-    // will add to this.
+    // had no drift correction and ran only seconds.) The Audio Delay adds to
+    // this.
     static constexpr double kTargetFillSeconds = 0.015;
 
     // More than this above the target, counting the sound a period is about
@@ -40,6 +40,20 @@ public:
 
     // The output device changed. Playback re-primes at the new rate.
     void SetOutputRate(uint32_t outputRate);
+
+    // Sample gain (volume; 0 is mute). Any thread. A change fades over one
+    // output period, so it never clicks.
+    void SetGain(float gain);
+
+    // Audio Delay: this much more sound is held in the buffer, so it plays
+    // later. Any thread. While playing, a change fades the sound out over one
+    // period, then playback re-primes at the new target (quiet while a longer
+    // fill gathers, extra sound dropped for a shorter one) and fades back in.
+    // Drift correction then holds the fill at the new target.
+    void SetAudioDelay(double seconds);
+
+    // The fill the buffer holds (or is moving to): base target plus Audio Delay.
+    double TargetFillSeconds();
 
     // Captured frames, interleaved left, right, at the input rate.
     void Push(const float* stereo, size_t frames);
@@ -63,7 +77,7 @@ public:
     Stats TakeStats();
 
 private:
-    double TargetSeconds() const { return kTargetFillSeconds; }
+    double TargetSeconds() const { return kTargetFillSeconds + delaySeconds_; }
     size_t TargetFrames() const;
     void RecordFill(double seconds);
 
@@ -76,6 +90,11 @@ private:
     bool playing_ = false;
     std::vector<float> scratch_;
     Stats stats_;
+    float gain_ = 1.0f;         // wanted
+    float appliedGain_ = 1.0f;  // reached at the end of the previous period
+    double delaySeconds_ = 0.0;         // the Audio Delay the target uses now
+    double pendingDelaySeconds_ = 0.0;  // wanted; applied when playback re-primes
+    bool retarget_ = false;             // fade out and re-prime at the next Pull
     double fillSum_ = 0.0;
     uint64_t fillReadings_ = 0;
 };

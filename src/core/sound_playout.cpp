@@ -16,6 +16,41 @@ void SoundPlayout::SetOutputRate(uint32_t outputRate) {
     playing_ = false;
 }
 
+namespace {
+
+// Scales the period by a gain going in a straight line from `from` to `to`,
+// reaching `to` on the last frame.
+void ApplyGain(float* stereo, size_t frames, float from, float to) {
+    if (from == 1.0f && to == 1.0f) return;
+    for (size_t i = 0; i < frames; i++) {
+        const float gain = from + (to - from) * static_cast<float>(i + 1) / static_cast<float>(frames);
+        stereo[2 * i] *= gain;
+        stereo[2 * i + 1] *= gain;
+    }
+}
+
+}  // namespace
+
+void SoundPlayout::SetGain(float gain) {
+    std::lock_guard lock(mutex_);
+    gain_ = std::max(gain, 0.0f);
+}
+
+void SoundPlayout::SetAudioDelay(double seconds) {
+    std::lock_guard lock(mutex_);
+    pendingDelaySeconds_ = std::clamp(seconds, 0.0, kLongestTargetSeconds - kTargetFillSeconds);
+    if (!playing_) {
+        delaySeconds_ = pendingDelaySeconds_;  // priming uses it straight away
+    } else {
+        retarget_ = pendingDelaySeconds_ != delaySeconds_;
+    }
+}
+
+double SoundPlayout::TargetFillSeconds() {
+    std::lock_guard lock(mutex_);
+    return TargetSeconds();
+}
+
 void SoundPlayout::Push(const float* stereo, size_t frames) {
     std::lock_guard lock(mutex_);
     stats_.framesPushed += frames;
@@ -43,6 +78,8 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
     stats_.framesPulled += frames;
     const double nominalStep = static_cast<double>(inputRate_) / outputRate_;
     if (!playing_) {
+        delaySeconds_ = pendingDelaySeconds_;
+        retarget_ = false;
         resampler_.Reset();
         const size_t start = TargetFrames() + resampler_.InputNeeded(frames, nominalStep);
         if (ring_.Fill() < start) {
@@ -67,6 +104,20 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
     scratch_.resize(2 * needed);
     ring_.Read(scratch_.data(), needed);
     resampler_.Process(scratch_.data(), needed, stereo, frames, step);
+    if (retarget_) {
+        // Audio Delay changed: fade this period out, drop any sound beyond
+        // the new target, and re-prime; the restart fades in from silence.
+        ApplyGain(stereo, frames, appliedGain_, 0.0f);
+        appliedGain_ = 0.0f;
+        delaySeconds_ = pendingDelaySeconds_;
+        retarget_ = false;
+        playing_ = false;
+        if (ring_.Fill() > TargetFrames()) ring_.Discard(ring_.Fill() - TargetFrames());
+        RecordFill(static_cast<double>(ring_.Fill()) / inputRate_);
+        return;
+    }
+    ApplyGain(stereo, frames, appliedGain_, gain_);
+    appliedGain_ = gain_;
     const double fill = static_cast<double>(ring_.Fill()) / inputRate_;
     RecordFill(fill);
     stats_.rate = correction_.Update(fill, TargetSeconds(), static_cast<double>(frames) / outputRate_);
