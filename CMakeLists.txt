@@ -13,6 +13,9 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 # Pure logic: no window, device or GPU. Everything here is unit-tested.
 add_library(gameplayer_core STATIC
     src/core/picture_fit.cpp
+    src/core/monitor_choice.cpp
+    src/core/cursor_idle.cpp
+    src/core/stay_awake.cpp
     src/core/capture_choice.cpp
     src/core/colour.cpp
     src/core/frame.cpp
@@ -34,6 +37,9 @@ enable_testing()
 add_executable(gameplayer_tests
     tests/test_main.cpp
     tests/picture_fit_test.cpp
+    tests/monitor_choice_test.cpp
+    tests/cursor_idle_test.cpp
+    tests/stay_awake_test.cpp
     tests/capture_choice_test.cpp
     tests/colour_test.cpp
     tests/latest_slot_test.cpp
