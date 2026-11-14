@@ -20,6 +20,7 @@ add_library(gameplayer_core STATIC
     src/core/colour.cpp
     src/core/frame.cpp
     src/core/processor.cpp
+    src/core/unique_frames.cpp
     src/core/sound_ring.cpp
     src/core/drift_correction.cpp
     src/core/resampler.cpp
@@ -62,6 +63,7 @@ add_executable(gameplayer_tests
     tests/latest_slot_test.cpp
     tests/frame_test.cpp
     tests/processor_test.cpp
+    tests/unique_frames_test.cpp
     tests/sound_ring_test.cpp
     tests/drift_correction_test.cpp
     tests/resampler_test.cpp
