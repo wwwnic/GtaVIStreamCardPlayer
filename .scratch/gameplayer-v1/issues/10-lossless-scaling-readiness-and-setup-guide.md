@@ -6,7 +6,7 @@
 
 **Status:** needs-plan-review
 
-**Gate:** Do not start this ticket until the user has reviewed the findings note from ticket 01 (the throwaway prototype) and has confirmed or revised the plan. This ticket may be rewritten at that review; if its status still reads needs-plan-review, stop and ask the user rather than beginning work.
+**Gate:** The plan review after ticket 01 has taken place, but this ticket waits for the user's two remaining hand tests on the prototype: a 30 fps game run through the prototype, and Lossless Scaling (LSFG, fixed X2) run on the prototype window. Those results are the main evidence for Part 1 and for upgrading guide steps to confirmed, and may change this ticket. If its status still reads needs-plan-review, stop and ask the user rather than beginning work.
 
 ## Context
 
@@ -17,7 +17,7 @@ Read these first:
 - `GLOSSARY.md`.
 - `docs/adr/0002-frame-generation-stays-outside-the-viewer.md`: the decision and its consequences.
 - `docs/research/capture-viewer-research.md`: read the section titled "Lossless Scaling automation" in full. It contains everything found about profiles, auto scale, start-up, capture modes and suggested settings, each with its source and an indication of what could not be verified. That section is the factual basis for the guide; do not go beyond it without saying so.
-- The prototype's findings note from ticket 01: it records what actually happened when the user ran Lossless Scaling on the prototype window.
+- The prototype's findings note from ticket 01, `prototype/FINDINGS.md`: once the user has done the hand test, it records what actually happened when they ran Lossless Scaling on the prototype window.
 
 Hardware: Xbox Series S; AVerMedia Live Gamer Ultra S GC553 Pro over USB; AMD Radeon RX 9070; 1080p 144 Hz FreeSync SDR monitor; Windows 11.
 
@@ -27,7 +27,7 @@ Check each point in the app as it exists after tickets 04 and 05, fix what is no
 
 - **Stable identity for profile matching.** Lossless Scaling matches a profile by executable path, executable name or window title. The executable must be named GamePlayer and the window title must be exactly "GamePlayer" at all times: no frame-rate counters, device names or state text appended to the title. If an earlier ticket put debug numbers in the title, move them elsewhere (the About dialog, or a debug-only switch that is off by default).
 - **Borderless only.** Confirm there is no path to exclusive fullscreen (no `SetFullscreenState`, DXGI Alt+Enter disabled). Lossless Scaling supports windowed and borderless windows only.
-- **Only Unique Frames are presented.** Confirm that with a 30 fps game the Viewer presents about 30 times a second, and that nothing else causes extra presents while the picture is unchanged: no idle redraw loop, no per-frame overlay animation, no repaint timer. Each extra present would be counted by Lossless Scaling as a game frame. Occasional repaints on resize or when the on-screen feedback text appears are acceptable.
+- **Only Unique Frames are presented.** Confirm that with a 30 fps game the Viewer presents about 30 times a second, and that nothing else causes extra presents while the picture is unchanged: no idle redraw loop, no per-frame overlay animation, no repaint timer, and no presents added by ticket 04's FPS counter (F key) when it is on. Each extra present would be counted by Lossless Scaling as a game frame. Occasional repaints on resize or when the on-screen feedback text appears are acceptable.
 - **Cursor hidden in fullscreen.** Confirm the 2-second cursor hide from ticket 05 works; a visible hardware cursor can disable the low-delay presentation path when Lossless Scaling captures with VRR active.
 - **Always on top** (if ticket 08 is done): confirm the topmost flag is dropped in fullscreen so it cannot fight Lossless Scaling's output window.
 
