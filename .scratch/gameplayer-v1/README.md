@@ -10,24 +10,24 @@ Ticket 01, the throwaway prototype, is done. Its findings are in `prototype/FIND
 
 The user reviewed the plan against those findings and approved it with revisions, now written into the tickets: the shader reads colour range and matrix from the media type (02); Media Foundation works driverless, no DirectShow (02); an explicit rule to skip the card's "Not To Use" audio endpoint, plus the prototype's working audio numbers (03); a near-duplicate tolerance, static-Feed handling and an optional FPS counter on the F key (04); "no signal" cannot be detected by frames stopping, and the busy-card HRESULT is still to be found (06); the card's untested NV12 1080p120 mode is never offered (08).
 
-Tickets 02, 03, 05, 06, 07, 08 and 09 are released (ready-for-agent), subject to their blocking edges.
+Tickets 02, 03, 05, 06 and 07 are done (user hand checks pending where noted in each ticket). Tickets 08 and 09 are released (ready-for-agent), subject to their blocking edges.
 
-Tickets 04 and 10 stay **needs-plan-review**. They wait for the user's two remaining hand tests on the prototype: a 30 fps game run through it (are Repeated Frames bit-identical, does unique read about 30?), and Lossless Scaling run on its window (does it see a base of 30?). The user releases them once those results are in `prototype/FINDINGS.md`. An agent handed a ticket that still reads needs-plan-review should stop and ask.
+Tickets 04 and 10 are released (ready-for-agent). Outcome of the hand tests that gated them: the user could not find a way to run a game at 30 fps, so bit-identical Repeated Frames at 30 fps remain unverified; ticket 04 is built with a tunable tolerance and diagnostic logging instead. The user will judge Lossless Scaling by taking a 60 fps game to 120 on their 144 Hz monitor (ticket 10).
 
 ## Tickets and blocking edges
 
 | # | Ticket | Blocked by | Status |
 |---|--------|------------|--------|
 | 01 | Throwaway prototype proving the pipeline | None | done |
-| 02 | App skeleton showing the Feed picture in a window | 01 + plan review | ready-for-agent |
-| 03 | Feed sound | 02 | ready-for-agent |
-| 04 | Unique Frames and Game Rate detection | 02 | needs-plan-review |
-| 05 | Fullscreen and window behaviour | 02 | ready-for-agent |
-| 06 | Video Area states and automatic recovery | 02, 03 | ready-for-agent |
-| 07 | Audio controls: volume, mute and Audio Delay | 03 | ready-for-agent |
+| 02 | App skeleton showing the Feed picture in a window | 01 + plan review | done (user hand checks pending) |
+| 03 | Feed sound | 02 | done (user hand checks pending) |
+| 04 | Unique Frames and Game Rate detection | 02 | ready-for-agent |
+| 05 | Fullscreen and window behaviour | 02 | done (user hand checks pending) |
+| 06 | Video Area states and automatic recovery | 02, 03 | done (user hand checks pending) |
+| 07 | Audio controls: volume, mute and Audio Delay | 03 | done (user hand checks pending) |
 | 08 | Menu bar | 04, 05, 07 | ready-for-agent |
 | 09 | Remembered settings | 08 | ready-for-agent |
-| 10 | Lossless Scaling readiness and user setup guide | 04, 05 | needs-plan-review |
+| 10 | Lossless Scaling readiness and user setup guide | 04, 05 | ready-for-agent |
 
 ## Order of work
 
@@ -35,12 +35,12 @@ Tickets 04 and 10 stay **needs-plan-review**. They wait for the user's two remai
 
 1. **01**: done.
 2. **02** alone. It creates the project structure everything else builds on.
-3. **03, 04, 05** once 02 is done, two at a time. They touch different parts (audio, Processor, window). 04 starts only once the user has released it; until then, run 03 and 05.
-4. **06** (after 03), **07** (after 03) and **10** (after 04 and 05, and once released), two at a time. 04, 06 and 07 all draw text in the Video Area (FPS counter, state messages, audio feedback); whichever runs first builds the text drawing and the later ones reuse it, so if two run at the same time, expect a small merge.
+3. **03, 04, 05** once 02 is done, two at a time. They touch different parts (audio, Processor, window). 04 is now released.
+4. **06** (after 03), **07** (after 03) and **10** (after 04 and 05), two at a time. 04, 06 and 07 all draw text in the Video Area (FPS counter, state messages, audio feedback); whichever runs first builds the text drawing and the later ones reuse it, so if two run at the same time, expect a small merge.
 5. **08** after 04, 05 and 07.
 6. **09** after 08.
 
-Longest chain: 02, 03, 07, 08, 09. Ticket 08 also waits on 04, so the hand tests gating 04 can hold up 08 and 09.
+Longest chain: 02, 03, 07, 08, 09. Ticket 08 also waits on 04.
 
 ## Notes for whoever dispatches these
 

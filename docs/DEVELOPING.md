@@ -33,6 +33,7 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `capture_choice.h`: which capture device and which mode to use, with no configuration.
   - `colour.h`: the YUV to RGB numbers for a frame's colour range and matrix.
   - `picture_fit.h`: where the 16:9 picture goes inside the Video Area.
+  - `window_shape.h`: the window rectangle while an edge or corner is dragged, so the windowed Video Area stays exactly 16:9 (WM_SIZING).
   - `monitor_choice.h`, `cursor_idle.h`, `stay_awake.h`: which monitor fullscreen covers, when the cursor hides, when to keep the PC awake.
   - `video_area_state.h`: the Video Area states (Loading, No Capture Card, Card busy, No signal, Playing, Error), their messages, and when to restart picture and sound.
   - `video_area_text.h`: text shown in the Video Area (headline and smaller detail line, three places) and its sizes for a given window.
@@ -47,12 +48,12 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `text_overlay.*`: draws those texts with Direct2D and DirectWrite into the back buffer.
   - `feed_keeper.*`: runs Source, Processor, Presenter and sound; follows `video_area_state.h`, restarts picture and sound together, reacts to device notifications and resume from sleep.
   - `sound.*`: the Feed sound. WASAPI shared mode, event-driven, capture from the card's endpoint and render to the Windows default output, following changes to that default. Volume, mute and Audio Delay are plain get / set values here.
-  - `feedback.*`: shows the confirmation line. For now a small click-through popup over the window's top-right corner; to be re-pointed at `Presenter::ShowText(TextPlace::Top, ...)`.
+  - `feedback.*`: shows the confirmation line through `Presenter::ShowText(TextPlace::Top, ..., 1500)`. The Presenter presents by itself when a text appears or ends, so it shows and clears on time even with a static, black or absent picture.
   - `fullscreen.*`: borderless fullscreen (F11, Esc), the hiding cursor, monitor changes. Window chrome is hidden and restored in one place, `ShowChrome`.
   - `keep_awake.*`: no system or display sleep while a Feed plays (the Playing state only).
   - `single_instance.*`: a second launch brings the running window forward and exits.
   - `log.*`: the debug log.
-- `src/app/main.cpp`: the window.
+- `src/app/main.cpp`: the window. Opens with a 16:9 Video Area (1280x720, smaller if the monitor is), minimum 480x270 at 100% scaling, and keeps 16:9 while dragged. Maximised, fullscreen, snaps and programmatic sizes may give other shapes; the picture then keeps its shape with black bars.
 - `third_party/doctest/`: the vendored test framework (one header).
 - `prototype/`: the throwaway prototype from ticket 01. Reference only; not part of the app.
 
