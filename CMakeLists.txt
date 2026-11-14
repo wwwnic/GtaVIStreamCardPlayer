@@ -25,6 +25,9 @@ add_library(gameplayer_core STATIC
     src/core/resampler.cpp
     src/core/pcm.cpp
     src/core/sound_playout.cpp
+    src/core/video_area_state.cpp
+    src/core/video_area_text.cpp
+    src/core/luma_summary.cpp
 )
 target_include_directories(gameplayer_core PUBLIC src)
 
@@ -59,6 +62,9 @@ add_executable(gameplayer_tests
     tests/resampler_test.cpp
     tests/pcm_test.cpp
     tests/sound_playout_test.cpp
+    tests/video_area_state_test.cpp
+    tests/video_area_text_test.cpp
+    tests/luma_summary_test.cpp
 )
 target_include_directories(gameplayer_tests PRIVATE third_party/doctest)
 target_link_libraries(gameplayer_tests PRIVATE gameplayer_core)
