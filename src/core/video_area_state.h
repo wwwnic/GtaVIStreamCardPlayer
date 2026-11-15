@@ -48,7 +48,9 @@ public:
     static constexpr int64_t kRetryMs = 1000;          // non-playing states retry this often
     static constexpr int64_t kDeviceSettleMs = 500;    // after a device notification or a lost stream
     static constexpr int64_t kNoFramesMs = 3000;       // open, no frame for this long: no signal
-    static constexpr int64_t kNoSignalRetryMs = 5000;  // then reopen this often
+    // Then reopen this long after: with the kNoFramesMs each reopened device
+    // is given to send a frame, a reopen every 8 s while No signal lasts.
+    static constexpr int64_t kNoSignalRetryMs = 5000;
     static constexpr int64_t kStallMs = 2000;          // playing, no frame arrived for this long: reconnect
     static constexpr int64_t kSoundRetryMs = 5000;     // sound missing while playing: retry this often
 
@@ -67,7 +69,8 @@ public:
     RecoveryActions FramesArrived(int64_t nowMs);            // at least one frame reached the Source
     void SoundStarted(bool ok, int64_t nowMs);
     void SoundLost(int64_t nowMs);                           // sound stopped by itself while playing
-    void DevicesChanged(int64_t nowMs);                      // device arrival/removal, resume from sleep
+    void DevicesChanged(int64_t nowMs);                      // device arrival/removal
+    void Resumed(int64_t nowMs);                             // the PC resumed from sleep
     // The user chose another Capture Card or resolution (menu): Loading, and
     // restart now, in any state.
     RecoveryActions ChoiceChanged(int64_t nowMs);

@@ -75,6 +75,9 @@ VideoAreaText SoundMissingNote() { return {L"", L"No sound from the capture card
 VideoAreaStateMachine::VideoAreaStateMachine(int64_t nowMs) { RetryAt(nowMs); }
 
 void VideoAreaStateMachine::FeedRestarted(int64_t) {
+    // The picture and the sound were stopped, so this is no longer Playing;
+    // the new Source's first frame brings Playing back and starts the sound.
+    if (state_ == VideoAreaState::Playing) state_ = VideoAreaState::Loading;
     retryAtMs_.reset();
     openedAtMs_.reset();
     soundMissing_ = false;  // the sound was stopped; it starts with the first frame
@@ -127,6 +130,9 @@ RecoveryActions VideoAreaStateMachine::FramesArrived(int64_t nowMs) {
     lastFrameMs_ = nowMs;
     openedAtMs_.reset();
     lastUnexpected_.reset();
+    // A retry planned while there was no picture (No signal, a device
+    // notification) must not restart a Feed that has come up by itself.
+    retryAtMs_.reset();
     if (state_ != VideoAreaState::Playing) {
         state_ = VideoAreaState::Playing;
         actions.startSound = true;
@@ -152,6 +158,14 @@ void VideoAreaStateMachine::DevicesChanged(int64_t nowMs) {
     // A playing Feed is never interrupted (its own loss shows as a failed
     // read or a stall), nor is an open device still waiting for its first frame.
     if (state_ == VideoAreaState::Playing || openedAtMs_) return;
+    RetryAt(nowMs + kDeviceSettleMs);
+}
+
+void VideoAreaStateMachine::Resumed(int64_t nowMs) {
+    // A device opened before the sleep may be dead without saying so, so an
+    // open one still waiting for its first frame is reopened too. A playing
+    // Feed is left to the stall rule: it carries on if frames still arrive.
+    if (state_ == VideoAreaState::Playing) return;
     RetryAt(nowMs + kDeviceSettleMs);
 }
 

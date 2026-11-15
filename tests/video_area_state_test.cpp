@@ -155,6 +155,12 @@ TEST_CASE("the card open but sending no frames means No signal, and it keeps reo
     CHECK(machine.Tick(noSignalAt + M::kNoSignalRetryMs).restartFeed);
     Restart(machine, 8000, kOpened);
     CHECK(machine.State() == VideoAreaState::NoSignal);  // still no frames: no flicker
+    // Each reopened device gets kNoFramesMs to send a frame before the next
+    // reopen is planned: one every 8 s.
+    CHECK_FALSE(machine.Tick(8000 + M::kNoFramesMs).restartFeed);
+    CHECK_FALSE(machine.Tick(8000 + M::kNoFramesMs + M::kNoSignalRetryMs - 1).restartFeed);
+    CHECK(machine.Tick(8000 + M::kNoFramesMs + M::kNoSignalRetryMs).restartFeed);
+    CHECK(machine.State() == VideoAreaState::NoSignal);
 }
 
 TEST_CASE("frames arriving again end No signal at once, without waiting for a reopen") {
@@ -165,6 +171,88 @@ TEST_CASE("frames arriving again end No signal at once, without waiting for a re
     REQUIRE(machine.State() == VideoAreaState::NoSignal);
     CHECK(machine.FramesArrived(4000).startSound);  // Console switched on
     CHECK(machine.State() == VideoAreaState::Playing);
+}
+
+TEST_CASE("a reopen planned during No signal is dropped once frames arrive: a playing Feed is left alone") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOpened);
+    machine.Tick(M::kNoFramesMs);
+    REQUIRE(machine.State() == VideoAreaState::NoSignal);  // reopen planned for 8000
+    machine.FramesArrived(4000);  // Console switched on; the open device delivers
+    machine.SoundStarted(true, 4000);
+    for (int64_t t = 4250; t <= 14000; t += 250) {
+        machine.FramesArrived(t);
+        const gp::RecoveryActions actions = machine.Tick(t);
+        CHECK_FALSE(actions.restartFeed);
+        CHECK_FALSE(actions.startSound);
+    }
+    CHECK(machine.State() == VideoAreaState::Playing);
+}
+
+TEST_CASE("a retry planned by a device notification is dropped once frames arrive") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOpened);
+    machine.Tick(M::kNoFramesMs);
+    machine.DevicesChanged(3100);  // retry planned for 3600
+    machine.FramesArrived(3200);
+    machine.FramesArrived(3600);
+    CHECK_FALSE(machine.Tick(3600).restartFeed);
+    CHECK(machine.State() == VideoAreaState::Playing);
+}
+
+TEST_CASE("any restart leaves Playing, so the new Source's first frame starts the sound again") {
+    M machine = PlayingAt(100);
+    machine.FeedRestarted(200);  // the sound was stopped with the Source
+    CHECK(machine.State() == VideoAreaState::Loading);
+    machine.SourceReported(kOpened, 200);
+    CHECK(machine.FramesArrived(300).startSound);
+    CHECK(machine.State() == VideoAreaState::Playing);
+}
+
+TEST_CASE("a first read that fails the same way twice shows Error, though the device opened each time") {
+    const SourceEvent firstReadFailed{Kind::Failed, SourceStage::FirstRead, 0x80004005u};
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOpened);
+    machine.SourceReported(firstReadFailed, 50);
+    CHECK(machine.State() == VideoAreaState::Loading);
+    CHECK(machine.Tick(50 + M::kRetryMs).restartFeed);
+    Restart(machine, 1050, kOpened);
+    machine.SourceReported(firstReadFailed, 1100);
+    CHECK(machine.State() == VideoAreaState::Error);
+    CHECK(machine.Failure() == firstReadFailed);
+}
+
+TEST_CASE("Error follows the failure: another one repeating replaces the code shown") {
+    const SourceEvent other{Kind::Failed, SourceStage::Mode, 0xC00D36B4u};
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOdd);
+    machine.Tick(1000);
+    Restart(machine, 1000, kOdd);
+    REQUIRE(machine.Failure() == kOdd);
+    machine.Tick(2000);
+    Restart(machine, 2000, other);
+    CHECK(machine.State() == VideoAreaState::Error);
+    CHECK(machine.Failure() == kOdd);  // a one-off does not replace it
+    machine.Tick(3000);
+    Restart(machine, 3000, other);
+    CHECK(machine.State() == VideoAreaState::Error);
+    CHECK(machine.Failure() == other);
+}
+
+TEST_CASE("Card busy gives way to No Capture Card when the card is unplugged") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOpened);
+    machine.SourceReported(kBusy, 50);
+    REQUIRE(machine.State() == VideoAreaState::CardBusy);
+    CHECK(machine.Tick(50 + M::kRetryMs).restartFeed);
+    Restart(machine, 1050, kNoDevice);
+    CHECK(machine.State() == VideoAreaState::NoCaptureCard);
+    CHECK(machine.Tick(1050 + M::kRetryMs).restartFeed);
 }
 
 TEST_CASE("a static picture or a Game Rate near zero is never No signal") {
@@ -196,6 +284,29 @@ TEST_CASE("a device notification retries sooner than the next regular retry") {
     CHECK(machine.Tick(100 + M::kDeviceSettleMs).restartFeed);
 }
 
+TEST_CASE("a device notification does not restart a device that is open and waiting for its first frame") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kNoDevice);
+    machine.Tick(1000);
+    Restart(machine, 1000, kOpened);  // opening the card makes notifications of its own
+    machine.DevicesChanged(1100);
+    CHECK_FALSE(machine.Tick(1100 + M::kDeviceSettleMs).restartFeed);
+    CHECK_FALSE(machine.Tick(1000 + M::kNoFramesMs - 1).restartFeed);
+}
+
+TEST_CASE("a device notification during No signal reopens sooner than the slow retry") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOpened);
+    machine.Tick(M::kNoFramesMs);
+    REQUIRE(machine.State() == VideoAreaState::NoSignal);
+    machine.DevicesChanged(3100);
+    CHECK_FALSE(machine.Tick(3100 + M::kDeviceSettleMs - 1).restartFeed);
+    CHECK(machine.Tick(3100 + M::kDeviceSettleMs).restartFeed);
+    CHECK(machine.State() == VideoAreaState::NoSignal);
+}
+
 TEST_CASE("a device notification never interrupts a playing Feed") {
     M machine = PlayingAt(100);
     machine.DevicesChanged(200);  // a mouse plugged in
@@ -209,11 +320,33 @@ TEST_CASE("a device notification never interrupts a playing Feed") {
 TEST_CASE("after PC sleep and resume the Feed returns by itself") {
     M machine = PlayingAt(100);
     const int64_t resumed = 100 + 3600 * 1000;  // no frames, no ticks while asleep
-    machine.DevicesChanged(resumed);
+    machine.Resumed(resumed);
     CHECK(machine.Tick(resumed).restartFeed);
     CHECK(machine.State() == VideoAreaState::Loading);
     Restart(machine, resumed, kOpened);
     CHECK(machine.FramesArrived(resumed + 300).startSound);
+    CHECK(machine.State() == VideoAreaState::Playing);
+}
+
+TEST_CASE("resume reopens a device that was open and waiting when the PC slept, without the No signal wait") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOpened);
+    const int64_t resumed = 1000 + 3600 * 1000;
+    machine.Resumed(resumed);
+    CHECK_FALSE(machine.Tick(resumed + M::kDeviceSettleMs - 1).restartFeed);
+    CHECK(machine.Tick(resumed + M::kDeviceSettleMs).restartFeed);
+}
+
+TEST_CASE("resume leaves a Feed alone whose frames still arrive") {
+    M machine = PlayingAt(100);
+    const int64_t resumed = 100 + 3600 * 1000;
+    machine.FramesArrived(resumed);
+    machine.Resumed(resumed);
+    for (int64_t t = resumed; t < resumed + 5000; t += 250) {
+        machine.FramesArrived(t);
+        CHECK_FALSE(machine.Tick(t).restartFeed);
+    }
     CHECK(machine.State() == VideoAreaState::Playing);
 }
 
