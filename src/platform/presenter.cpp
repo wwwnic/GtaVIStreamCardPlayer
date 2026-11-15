@@ -98,6 +98,8 @@ double QpcToMs(int64_t ticks) {
     return static_cast<double>(ticks) * msPerTick;
 }
 
+const ULONGLONG kRebuildEveryMs = 1000;  // device rebuild attempts are at least this far apart
+
 int64_t QpcNow() {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
@@ -113,9 +115,19 @@ public:
     bool Start(HWND window) {
         if (thread_.joinable()) return false;
         window_ = window;
-        if (!CreateDevice()) return false;
         wake_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!wake_) {
+            Log("Presenter: no wake event (error %lu)", GetLastError());
+            return false;
+        }
         stop_ = false;
+        // No device now (a graphics driver being replaced at launch): the
+        // thread keeps trying, exactly as after a device loss.
+        deviceLost_ = !CreateDevice();
+        if (deviceLost_) {
+            Log("Presenter: no device at start; trying again once a second");
+            rebuildAt_ = GetTickCount64() + kRebuildEveryMs;
+        }
         resized_ = true;  // first pass paints the Video Area black
         SetEvent(wake_);
         thread_ = std::thread([this] { Run(); });
@@ -128,12 +140,21 @@ public:
             SetEvent(wake_);
             // DXGI can send messages to the window's thread from inside
             // Present or ResizeBuffers, so keep answering them while waiting.
+            // A quit seen here belongs to the caller's message loop: posted again.
             HANDLE thread = thread_.native_handle();
+            std::optional<int> quit;
             while (MsgWaitForMultipleObjects(1, &thread, FALSE, INFINITE, QS_ALLINPUT) != WAIT_OBJECT_0) {
                 MSG message;
-                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                    if (message.message == WM_QUIT) {
+                        quit = static_cast<int>(message.wParam);
+                    } else {
+                        DispatchMessageW(&message);
+                    }
+                }
             }
             thread_.join();
+            if (quit) PostQuitMessage(*quit);
         }
         slot_.Take();
         lastFrame_.reset();
@@ -354,14 +375,18 @@ private:
     void Run() {
         Log("Presenter: thread started");
         while (true) {
-            WaitForSingleObject(wake_, deviceLost_ ? 1000 : NextTextEndMs());
+            WaitForSingleObject(wake_, deviceLost_ ? RebuildWaitMs() : NextTextEndMs());
             if (stop_) break;
             if (deviceLost_) {
                 // Graphics driver reset or GPU removed (it can happen around
-                // sleep): build everything again, once a second until it works.
+                // sleep): build everything again, once a second until it
+                // works. By the clock: frames and texts keep waking this
+                // thread meanwhile, and the newest frame waits in the slot.
+                if (RebuildWaitMs() > 0) continue;
+                rebuildAt_ = GetTickCount64() + kRebuildEveryMs;
                 ReleaseDevice();
                 if (!CreateDevice()) continue;
-                Log("Presenter: device recreated after a loss");
+                Log("Presenter: device recreated");
                 deviceLost_ = false;
                 resized_ = true;
                 // On a still picture no new frame is coming: show the last one again.
@@ -370,18 +395,24 @@ private:
 
             bool draw = repaint_.exchange(false) || EndExpiredTexts();
             if (resized_.exchange(false)) {
-                ResizeBackBuffer();
+                if (!ResizeBackBuffer()) {
+                    // No back buffer to draw into, and Present, which reports a
+                    // lost device, would never run: rebuild as after a loss.
+                    deviceLost_ = true;
+                    continue;
+                }
                 draw = true;  // also repaints when no new frame is coming
             }
             std::optional<TimedFrame> next = slot_.Take();
-            if (next && ConvertToPicture(*next->frame)) {
+            const bool converted = next && ConvertToPicture(*next->frame);
+            if (converted) {
                 draw = true;
                 lastFrame_ = next->frame;
             }
             if (!draw || !backBufferView_) continue;
 
-            ShowAndPresent();
-            if (next) {
+            // Counted as shown only if it was converted and the present went through.
+            if (ShowAndPresent() && converted) {
                 const double latencyMs = QpcToMs(QpcNow() - next->frame->arrivalQpc);
                 std::lock_guard lock(statsMutex_);
                 stats_.presented++;
@@ -390,6 +421,12 @@ private:
             }
         }
         Log("Presenter: thread stopped");
+    }
+
+    // Milliseconds until the device may be built again; 0 when it may now.
+    DWORD RebuildWaitMs() const {
+        const ULONGLONG now = GetTickCount64();
+        return rebuildAt_ > now ? static_cast<DWORD>(rebuildAt_ - now) : 0;
     }
 
     // Milliseconds until the next brief text ends; INFINITE when none.
@@ -417,20 +454,30 @@ private:
         return ended;
     }
 
-    void ResizeBackBuffer() {
+    // False: the swap chain has no usable back buffer (a lost device shows
+    // here too, not only in Present); the caller rebuilds the device.
+    bool ResizeBackBuffer() {
         RECT client = {};
         GetClientRect(window_, &client);
         const uint32_t width = static_cast<uint32_t>(client.right - client.left);
         const uint32_t height = static_cast<uint32_t>(client.bottom - client.top);
-        if (width == 0 || height == 0) return;  // minimised: keep the old buffers
-        if (width == backWidth_ && height == backHeight_ && backBufferView_) return;
+        if (width == 0 || height == 0) return true;  // minimised: keep the old buffers
+        if (width == backWidth_ && height == backHeight_ && backBufferView_) return true;
         context_->OMSetRenderTargets(0, nullptr, nullptr);
         backBufferView_.Reset();
         overlay_.ReleaseTarget();
         context_->Flush();
         const HRESULT hr = swapChain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, swapChainFlags_);
-        if (FAILED(hr)) Log("Presenter: ResizeBuffers(%ux%u) failed hr=0x%08lX", width, height, static_cast<unsigned long>(hr));
-        CreateBackBufferView();
+        if (FAILED(hr)) {
+            Log("Presenter: ResizeBuffers(%ux%u) failed hr=0x%08lX (device removed reason 0x%08lX); recreating", width,
+                height, static_cast<unsigned long>(hr), static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
+            return false;
+        }
+        if (!CreateBackBufferView()) {
+            Log("Presenter: no back buffer after a resize; recreating");
+            return false;
+        }
+        return true;
     }
 
     // Pass 1: upload the frame and convert it into the RGB picture.
@@ -523,8 +570,9 @@ private:
                SUCCEEDED(device_->CreateShaderResourceView(texture.Get(), nullptr, &view));
     }
 
-    // Pass 2: black Video Area, the picture fitted 16:9 inside it, present now.
-    void ShowAndPresent() {
+    // Pass 2: black Video Area, the picture fitted inside it in the capture
+    // mode's shape (16:9 for every 16:9 mode), present now. False: not presented.
+    bool ShowAndPresent() {
         // Signalled when the swap chain can take a frame; keeps at most one in flight.
         if (latencyWaitable_) WaitForSingleObjectEx(latencyWaitable_, 100, FALSE);
 
@@ -565,11 +613,11 @@ private:
             Log("Presenter: device lost hr=0x%08lX (reason 0x%08lX); recreating", static_cast<unsigned long>(hr),
                 static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
             deviceLost_ = true;
-            SetEvent(wake_);
         } else if (FAILED(hr) && !warnedPresent_) {
             warnedPresent_ = true;
             Log("Presenter: Present failed hr=0x%08lX", static_cast<unsigned long>(hr));
         }
+        return SUCCEEDED(hr);
     }
 
     HWND window_ = nullptr;
@@ -599,7 +647,8 @@ private:
     HANDLE latencyWaitable_ = nullptr;
     UINT swapChainFlags_ = 0;
     bool tearing_ = false;
-    bool deviceLost_ = false;
+    bool deviceLost_ = false;   // lost, or never created: Run builds it again
+    ULONGLONG rebuildAt_ = 0;   // GetTickCount64: no rebuild attempt before this
     bool warnedPresent_ = false;
     uint32_t backWidth_ = 0, backHeight_ = 0;
 

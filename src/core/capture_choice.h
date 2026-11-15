@@ -30,8 +30,8 @@ struct Resolution {
     bool operator==(const Resolution&) const = default;
 };
 
-// Index of the device to open: the GC553 Pro (by name) when present,
-// otherwise the first device. Empty when there are no devices.
+// Index of the device to open: the GC553 Pro (by name) when present, else
+// another GC553, otherwise the first device. Empty when there are no devices.
 std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames);
 // The device named `chosen` (the menu's Capture Card) when present; when it
 // is not, or `chosen` is empty, the automatic choice above.
