@@ -54,7 +54,12 @@ double SoundPlayout::TargetFillSeconds() {
 void SoundPlayout::Push(const float* stereo, size_t frames) {
     std::lock_guard lock(mutex_);
     stats_.framesPushed += frames;
-    const size_t limit = TargetFrames() + static_cast<size_t>(kOverrunMarginSeconds * inputRate_);
+    // An output that takes a long period at a time needs room for what one
+    // period takes, as much again arriving before the next, and a capture
+    // packet (a quarter of the margin); otherwise it could never start.
+    const size_t usual = static_cast<size_t>(kOverrunMarginSeconds * inputRate_);
+    const size_t margin = std::max(usual, 2 * periodNeed_ + usual / 4);
+    const size_t limit = std::min(TargetFrames() + margin, ring_.Capacity());
     if (ring_.Fill() + frames > limit) {
         // Overrun: drop the oldest sound so the fill is back at the target.
         stats_.overruns++;
@@ -81,7 +86,8 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
         delaySeconds_ = pendingDelaySeconds_;
         retarget_ = false;
         resampler_.Reset();
-        const size_t start = TargetFrames() + resampler_.InputNeeded(frames, nominalStep);
+        periodNeed_ = resampler_.InputNeeded(frames, nominalStep);
+        const size_t start = TargetFrames() + periodNeed_;
         if (ring_.Fill() < start) {
             RecordFill(static_cast<double>(ring_.Fill()) / inputRate_);
             return;  // still priming
@@ -93,6 +99,7 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
     }
     const double step = nominalStep * stats_.rate;
     const size_t needed = resampler_.InputNeeded(frames, step);
+    periodNeed_ = needed;
     if (needed > ring_.Fill()) {
         // Underrun: play silence and wait for the target fill again, so the
         // sound resumes with its normal margin.

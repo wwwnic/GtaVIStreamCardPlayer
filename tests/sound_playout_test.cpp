@@ -248,40 +248,173 @@ Session Simulate(uint32_t inputRate, uint32_t outputRate, double cardSpeed, int 
 }
 }  // namespace
 
+namespace {
+// Uneven arrival: 10 ms capture packets on the card's clock, every
+// `lateEvery`-th one late by `lateBy` packets (1: it comes with the next);
+// the output takes `period` frames at a time. 48 kHz both sides.
+Session SimulateUneven(size_t period, double cardSpeed, int lateEvery, int minutes, double lateBy = 1.0) {
+    SoundPlayout playout(48000, 48000);
+    Session session;
+    const size_t packet = 480;
+    std::vector<float> in(2 * packet, 0.25f);
+    std::vector<float> out(2 * period);
+    const double packetTime = static_cast<double>(packet) / cardSpeed;  // in output frames
+    const uint64_t pulls = static_cast<uint64_t>(minutes) * 60 * 48000 / period;
+    const uint64_t pullsPerSecond = 48000 / period;
+    uint64_t nextPacket = 0;
+    for (uint64_t j = 0; j < pulls; j++) {
+        const double now = static_cast<double>(j * period);
+        for (;;) {
+            double arrival = static_cast<double>(nextPacket + 1) * packetTime;
+            if (lateEvery > 0 && nextPacket % lateEvery == static_cast<uint64_t>(lateEvery) - 1) arrival += lateBy * packetTime;
+            if (arrival > now) break;
+            playout.Push(in.data(), packet);
+            nextPacket++;
+        }
+        playout.Pull(out.data(), period);
+        if (j % pullsPerSecond == pullsPerSecond - 1) {
+            const SoundPlayout::Stats stats = playout.TakeStats();
+            if (j > 180 * pullsPerSecond) {
+                session.underruns += stats.underruns;
+                session.overruns += stats.overruns;
+                session.worstFillError = std::fmax(
+                    session.worstFillError, std::fabs(stats.fillAverageSeconds - SoundPlayout::kTargetFillSeconds));
+            }
+        }
+    }
+    return session;
+}
+}  // namespace
+
 TEST_CASE("with the card's clock 300 ppm fast, a long session holds the fill at its target without glitches") {
     const Session session = Simulate(48000, 48000, 1.0003, 20);
     CHECK(session.underruns == 0);
     CHECK(session.overruns == 0);
-    CHECK(session.worstFillError < 0.005);
+    CHECK(session.worstFillError < 0.001);
 }
 
 TEST_CASE("with the card's clock 300 ppm slow, a long session holds the fill too") {
     const Session session = Simulate(48000, 48000, 0.9997, 20);
     CHECK(session.underruns == 0);
     CHECK(session.overruns == 0);
-    CHECK(session.worstFillError < 0.005);
+    CHECK(session.worstFillError < 0.001);
 }
 
 TEST_CASE("after the Audio Delay changes, drift correction holds the fill at the shifted target") {
     const Session fast = Simulate(48000, 48000, 1.0003, 20, 0.3);
     CHECK(fast.underruns == 0);
     CHECK(fast.overruns == 0);
-    CHECK(fast.worstFillError < 0.005);
+    CHECK(fast.worstFillError < 0.001);
     const Session slow = Simulate(48000, 44100, 0.9997, 20, 0.5);
     CHECK(slow.underruns == 0);
     CHECK(slow.overruns == 0);
-    CHECK(slow.worstFillError < 0.005);
+    CHECK(slow.worstFillError < 0.001);
 }
 
 TEST_CASE("48 kHz capture plays on a 44.1 kHz output without glitches, and the other way round") {
     const Session down = Simulate(48000, 44100, 1.0001, 10);
     CHECK(down.underruns == 0);
     CHECK(down.overruns == 0);
-    CHECK(down.worstFillError < 0.005);
+    CHECK(down.worstFillError < 0.001);
     const Session up = Simulate(44100, 48000, 0.9999, 10);
     CHECK(up.underruns == 0);
     CHECK(up.overruns == 0);
-    CHECK(up.worstFillError < 0.005);
+    CHECK(up.worstFillError < 0.001);
+}
+
+// The target fill is sized to outlast one late capture packet. These guard
+// that against the cases a real machine has: late packets, clocks that
+// differ, output periods shorter than the packets.
+TEST_CASE("a capture packet that comes a whole packet late does not run the buffer dry") {
+    const Session session = SimulateUneven(480, 1.0, 300, 10);
+    CHECK(session.underruns == 0);
+    CHECK(session.overruns == 0);
+}
+
+// Known limit, not asserted: a packet a WHOLE packet late still runs the
+// buffer dry when the card's clock is slow (the packets slide against the
+// periods, so the fill before a packet is at times only 10 ms) or when the
+// output periods are short. Three quarters late is covered everywhere.
+TEST_CASE("capture packets three quarters late do not run the buffer dry, whichever clock is faster") {
+    const double cardSpeeds[] = {0.9997, 0.99995, 1.00005, 1.0003};
+    for (const double cardSpeed : cardSpeeds) {
+        const Session session = SimulateUneven(480, cardSpeed, 300, 10, 0.75);
+        CAPTURE(cardSpeed);
+        CHECK(session.underruns == 0);
+        CHECK(session.overruns == 0);
+    }
+}
+
+TEST_CASE("short output periods ride out capture packets three quarters late") {
+    const Session session = SimulateUneven(128, 1.0, 300, 10, 0.75);
+    CHECK(session.underruns == 0);
+    CHECK(session.overruns == 0);
+}
+
+TEST_CASE("short output periods (128 frames, the low-latency kind) against 10 ms capture packets play without glitches") {
+    const Session session = SimulateUneven(128, 1.0002, 0, 10);
+    CHECK(session.underruns == 0);
+    CHECK(session.overruns == 0);
+    CHECK(session.worstFillError < 0.001);
+}
+
+TEST_CASE("an output that takes 40 ms at a time still starts playing, and keeps playing") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> in(2 * 480, 0.25f);
+    std::vector<float> out(2 * 1920);
+    int silentPulls = 0;
+    bool heard = false;
+    for (int i = 0; i < 4000; i++) {  // 40 seconds
+        playout.Push(in.data(), 480);
+        if (i % 4 != 3) continue;
+        playout.Pull(out.data(), 1920);
+        if (!heard) {
+            heard = !AllSilent(out);
+            if (heard) playout.TakeStats();
+            else silentPulls++;
+        }
+    }
+    CHECK(heard);
+    CHECK(silentPulls <= 2);
+    const SoundPlayout::Stats stats = playout.TakeStats();
+    CHECK(stats.underruns == 0);
+    CHECK(stats.overruns == 0);
+    CHECK(stats.fillAverageSeconds == doctest::Approx(SoundPlayout::kTargetFillSeconds).epsilon(0.05));
+}
+
+TEST_CASE("an output that takes 40 ms at a time recovers from an underrun") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> in(2 * 480, 0.25f);
+    std::vector<float> out(2 * 1920);
+    for (int i = 0; i < 400; i++) {
+        playout.Push(in.data(), 480);
+        if (i % 4 == 3) playout.Pull(out.data(), 1920);
+    }
+    playout.Pull(out.data(), 1920);  // no sound arrived in between
+    CHECK(AllSilent(out));
+    CHECK(playout.TakeStats().underruns == 1);
+    bool heard = false;
+    for (int i = 0; i < 400; i++) {
+        playout.Push(in.data(), 480);
+        if (i % 4 == 3) {
+            playout.Pull(out.data(), 1920);
+            heard = !AllSilent(out);
+        }
+    }
+    CHECK(heard);
+    CHECK(playout.TakeStats().underruns == 0);
+}
+
+TEST_CASE("an ordinary output keeps the overrun limit it had: 40 ms above the target") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> out(2 * 480);
+    StartPlaying(playout, out, 480);
+    playout.TakeStats();
+    // The fill is at the target now. 40 ms more is allowed; one frame beyond is an overrun.
+    PushSteady(playout, 1920);
+    CHECK(playout.TakeStats().overruns == 0);
+    PushSteady(playout, 1);
+    CHECK(playout.TakeStats().overruns == 1);
 }
 
 TEST_CASE("the reported playback rate stays within the inaudible correction bound") {

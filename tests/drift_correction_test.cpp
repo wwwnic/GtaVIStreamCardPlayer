@@ -77,10 +77,54 @@ TEST_CASE("with the card's clock running fast, the fill settles near the target 
         fill -= kPeriod * rate;         // one playback period
         const double reading = fill - ((i % 2) ? 0.002 : 0.0);  // packet jitter
         rate = correction.Update(reading, kTarget, kPeriod);
-        if (i > 60 * 100) worstAfterSettling = std::fmax(worstAfterSettling, std::fabs(fill - kTarget));
+        if (i > 300 * 100) worstAfterSettling = std::fmax(worstAfterSettling, std::fabs(fill - kTarget));
     }
-    CHECK(worstAfterSettling < 0.005);
+    // The readings average 1 ms under the fill (the jitter), so that is where it rests.
+    CHECK(worstAfterSettling < 0.0015);
     CHECK(rate == doctest::Approx(cardRate).epsilon(0.0001));
+}
+
+// A steady clock difference must not leave the fill resting off its target:
+// that would eat the margin the target was chosen for.
+TEST_CASE("a steady clock difference leaves no lasting fill error, either way") {
+    const double cardRates[] = {1.0003, 0.9997, 1.0008, 0.9992};
+    for (const double cardRate : cardRates) {
+        DriftCorrection correction;
+        double fill = kTarget;
+        correction.Reset(fill);
+        double rate = 1.0;
+        double worstEver = 0.0;
+        double worstAfterSettling = 0.0;
+        for (int i = 0; i < 1200 * 100; i++) {
+            fill += kPeriod * cardRate;
+            fill -= kPeriod * rate;
+            rate = correction.Update(fill, kTarget, kPeriod);
+            worstEver = std::fmax(worstEver, std::fabs(fill - kTarget));
+            if (i > 300 * 100) worstAfterSettling = std::fmax(worstAfterSettling, std::fabs(fill - kTarget));
+        }
+        CAPTURE(cardRate);
+        CHECK(worstAfterSettling < 0.0005);
+        CHECK(worstEver < std::fabs(cardRate - 1.0) * 10.0 + 0.0005);  // never further off than before
+        CHECK(rate == doctest::Approx(cardRate).epsilon(0.00002));
+    }
+}
+
+TEST_CASE("a long spell far off the target is not remembered once the fill is back") {
+    DriftCorrection correction;
+    correction.Reset(kTarget);
+    // 50 ppm at most is left (from the smoothed reading's way back), not the whole bound.
+    CHECK(Hold(correction, 1.0, 600.0) == doctest::Approx(1.0 + DriftCorrection::kMaxCorrection));
+    CHECK(std::fabs(Hold(correction, kTarget, 30.0) - 1.0) < 0.00005);
+    CHECK(Hold(correction, 0.0, 600.0) == doctest::Approx(1.0 - DriftCorrection::kMaxCorrection));
+    CHECK(std::fabs(Hold(correction, kTarget, 30.0) - 1.0) < 0.00005);
+}
+
+TEST_CASE("starting over forgets the clock difference learnt so far") {
+    DriftCorrection correction;
+    correction.Reset(kTarget);
+    Hold(correction, kTarget + 0.003, 120.0);
+    correction.Reset(kTarget);
+    CHECK(correction.Update(kTarget, kTarget, kPeriod) == doctest::Approx(1.0));
 }
 
 TEST_CASE("with the card's clock running slow, the fill settles near the target too") {
@@ -94,7 +138,7 @@ TEST_CASE("with the card's clock running slow, the fill settles near the target 
         fill -= kPeriod * rate;
         rate = correction.Update(fill, kTarget, kPeriod);
     }
-    CHECK(std::fabs(fill - kTarget) < 0.005);
+    CHECK(std::fabs(fill - kTarget) < 0.0005);
 }
 
 TEST_CASE("a raised target (later: Audio Delay) is reached by the same slow correction") {

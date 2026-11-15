@@ -23,14 +23,20 @@ public:
     // period has taken its share. Its target is the one number to tune for
     // glitch-free sound at the lowest delay. It must outlast one late capture
     // packet (10 ms on the GC553 Pro), or the next period runs dry; 15 ms
-    // leaves 5 ms of margin. (The prototype started playback with 10 ms but
+    // leaves 5 ms of margin. That holds while the output takes 10 ms periods
+    // in step with the packets; with the card's clock the slower one, or
+    // with shorter output periods, a packet up to three quarters late is
+    // still covered, a whole one is not (see the late-packet tests). (The
+    // prototype started playback with 10 ms but
     // had no drift correction and ran only seconds.) The Audio Delay adds to
     // this.
     static constexpr double kTargetFillSeconds = 0.015;
 
     // More than this above the target, counting the sound a period is about
     // to take, is an overrun: the buffer drops back to the target rather than
-    // letting delay accumulate.
+    // letting delay accumulate. (An output that takes more than about 15 ms
+    // at a time gets a wider margin, from the size of its periods: twice
+    // what a period takes, plus a quarter of this for a capture packet.)
     static constexpr double kOverrunMarginSeconds = 0.040;
 
     // The longest target the buffer has room for (target plus Audio Delay).
@@ -88,6 +94,7 @@ private:
     Resampler resampler_;
     DriftCorrection correction_;
     bool playing_ = false;
+    size_t periodNeed_ = 0;  // input frames the latest Pull asked for
     std::vector<float> scratch_;
     Stats stats_;
     float gain_ = 1.0f;         // wanted

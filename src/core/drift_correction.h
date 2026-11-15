@@ -1,6 +1,8 @@
 // Drift correction: the Capture Card and the output device run on different
 // clocks, so the sound buffer slowly fills or drains. This holds its fill
-// near a target by nudging the playback rate by a tiny, inaudible fraction.
+// at a target by nudging the playback rate by a tiny, inaudible fraction: a
+// correction in proportion to the fill error, plus a slow trim that learns
+// the steady clock difference so the fill does not rest off the target.
 #pragma once
 
 namespace gp {
@@ -23,6 +25,7 @@ public:
 
 private:
     double smoothedFill_ = 0.0;
+    double trim_ = 0.0;  // the steady clock difference learnt since Reset
     double rate_ = 1.0;
 };
 
