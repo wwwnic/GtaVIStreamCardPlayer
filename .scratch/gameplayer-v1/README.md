@@ -10,9 +10,9 @@ Ticket 01, the throwaway prototype, is done. Its findings are in `prototype/FIND
 
 The user reviewed the plan against those findings and approved it with revisions, now written into the tickets: the shader reads colour range and matrix from the media type (02); Media Foundation works driverless, no DirectShow (02); an explicit rule to skip the card's "Not To Use" audio endpoint, plus the prototype's working audio numbers (03); a near-duplicate tolerance, static-Feed handling and an optional FPS counter on the F key (04); "no signal" cannot be detected by frames stopping, and the busy-card HRESULT is still to be found (06); the card's untested NV12 1080p120 mode is never offered (08).
 
-Tickets 02, 03, 05, 06 and 07 are done (user hand checks pending where noted in each ticket). Tickets 08 and 09 are released (ready-for-agent), subject to their blocking edges.
+All tickets, 02 to 10, are done (user hand checks pending where noted in each ticket).
 
-Tickets 04 and 10 are released (ready-for-agent). Outcome of the hand tests that gated them: the user could not find a way to run a game at 30 fps, so bit-identical Repeated Frames at 30 fps remain unverified; ticket 04 is built with a tunable tolerance and diagnostic logging instead. The user will judge Lossless Scaling by taking a 60 fps game to 120 on their 144 Hz monitor (ticket 10).
+Tickets 04 and 10 were released after hand tests. Outcome of the hand tests that gated them: the user could not find a way to run a game at 30 fps, so bit-identical Repeated Frames at 30 fps remain unverified; ticket 04 is built with a tunable tolerance and diagnostic logging instead. The user will judge Lossless Scaling by taking a 60 fps game to 120 on their 144 Hz monitor (ticket 10).
 
 ## Tickets and blocking edges
 
@@ -21,13 +21,13 @@ Tickets 04 and 10 are released (ready-for-agent). Outcome of the hand tests that
 | 01 | Throwaway prototype proving the pipeline | None | done |
 | 02 | App skeleton showing the Feed picture in a window | 01 + plan review | done (user hand checks pending) |
 | 03 | Feed sound | 02 | done (user hand checks pending) |
-| 04 | Unique Frames and Game Rate detection | 02 | ready-for-agent |
+| 04 | Unique Frames and Game Rate detection | 02 | done (user hand checks pending) |
 | 05 | Fullscreen and window behaviour | 02 | done (user hand checks pending) |
 | 06 | Video Area states and automatic recovery | 02, 03 | done (user hand checks pending) |
 | 07 | Audio controls: volume, mute and Audio Delay | 03 | done (user hand checks pending) |
-| 08 | Menu bar | 04, 05, 07 | ready-for-agent |
-| 09 | Remembered settings | 08 | ready-for-agent |
-| 10 | Lossless Scaling readiness and user setup guide | 04, 05 | ready-for-agent |
+| 08 | Menu bar | 04, 05, 07 | done (user hand checks pending) |
+| 09 | Remembered settings | 08 | done (user hand checks pending) |
+| 10 | Lossless Scaling readiness and user setup guide | 04, 05 | done (user hand checks pending) |
 
 ## Order of work
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 (Menu bar).
 
-**Status:** ready-for-agent
+**Status:** done (user hand checks pending)
 
 ## Context
 

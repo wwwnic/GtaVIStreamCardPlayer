@@ -57,6 +57,17 @@ std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNa
     return ChooseCaptureDevice(deviceNames);
 }
 
+std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames,
+                                          std::span<const std::wstring> deviceIds, const std::wstring& chosenName,
+                                          const std::wstring& chosenId) {
+    if (!chosenId.empty()) {
+        for (size_t i = 0; i < deviceIds.size() && i < deviceNames.size(); i++) {
+            if (deviceIds[i] == chosenId) return i;
+        }
+    }
+    return ChooseCaptureDevice(deviceNames, chosenName);
+}
+
 namespace {
 
 bool HasMjpegTwin(std::span<const CaptureMode> modes, const CaptureMode& mode) {

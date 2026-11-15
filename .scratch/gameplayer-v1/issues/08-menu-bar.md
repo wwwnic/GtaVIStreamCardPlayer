@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 (Unique Frames and Game Rate detection), 05 (Fullscreen and window behaviour), 07 (Audio controls).
 
-**Status:** ready-for-agent
+**Status:** done (user hand checks pending)
 
 ## Context
 

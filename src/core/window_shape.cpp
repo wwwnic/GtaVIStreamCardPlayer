@@ -41,4 +41,16 @@ WindowRect KeepVideoArea16x9(WindowRect proposed, SizingEdge edge, int frameWidt
     return r;
 }
 
+std::optional<WindowRect> RestoredWindowRect(WindowRect saved, std::span<const WindowRect> monitors, int frameWidth,
+                                             int frameHeight, int minVideoAreaWidth, int slack) {
+    const WindowRect r = KeepVideoArea16x9(saved, SizingEdge::Right, frameWidth, frameHeight, minVideoAreaWidth);
+    for (const WindowRect& m : monitors) {
+        if (r.left >= m.left - slack && r.top >= m.top - slack && r.right <= m.right + slack &&
+            r.bottom <= m.bottom + slack) {
+            return r;
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace gp

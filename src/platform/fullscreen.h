@@ -23,6 +23,9 @@ public:
     bool HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
 
     bool IsOn() const { return on_; }
+    // In fullscreen: the windowed placement it returns to (remembered
+    // instead of fullscreen, ticket 09). Null when windowed.
+    const WINDOWPLACEMENT* WindowedPlacement() const { return on_ ? &saved_ : nullptr; }
     void Toggle();
     void Leave();
 

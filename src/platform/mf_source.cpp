@@ -87,17 +87,24 @@ std::string Describe(IMFMediaType* type) {
     return text;
 }
 
-std::vector<std::wstring> NamesOf(IMFActivate** devices, UINT32 count) {
-    std::vector<std::wstring> names(count);
+std::vector<std::wstring> StringsOf(IMFActivate** devices, UINT32 count, REFGUID key) {
+    std::vector<std::wstring> strings(count);
     for (UINT32 i = 0; i < count; i++) {
-        WCHAR* name = nullptr;
+        WCHAR* text = nullptr;
         UINT32 length = 0;
-        if (SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &length)) && name) {
-            names[i] = name;
-        }
-        CoTaskMemFree(name);
+        if (SUCCEEDED(devices[i]->GetAllocatedString(key, &text, &length)) && text) strings[i] = text;
+        CoTaskMemFree(text);
     }
-    return names;
+    return strings;
+}
+
+std::vector<std::wstring> NamesOf(IMFActivate** devices, UINT32 count) {
+    return StringsOf(devices, count, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
+}
+
+// The symbolic link: the remembered Capture Card's identifier (ticket 09).
+std::vector<std::wstring> IdsOf(IMFActivate** devices, UINT32 count) {
+    return StringsOf(devices, count, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK);
 }
 
 HRESULT EnumerateVideoCaptureDevices(IMFActivate*** devices, UINT32* count) {
@@ -347,6 +354,7 @@ public:
     }
 
     std::wstring DeviceName() const override { return deviceName_; }
+    std::wstring DeviceId() const override { return deviceId_; }
 
     void Choose(const Choice& choice) override {
         choice_ = choice;
@@ -371,6 +379,7 @@ private:
 
     std::optional<SourceEvent> OpenDevice() {
         deviceName_.clear();
+        deviceId_.clear();
         modes_.clear();
         IMFActivate** devices = nullptr;
         UINT32 count = 0;
@@ -380,21 +389,29 @@ private:
             return Failure(SourceStage::Enumerate, hr);
         }
         const std::vector<std::wstring> names = NamesOf(devices, count);
+        const std::vector<std::wstring> ids = IdsOf(devices, count);
         // A new choice logs its details like a changed device list.
         detail_ = !lastNames_ || names != *lastNames_ || choiceChanged_;
         choiceChanged_ = false;
         lastNames_ = names;
         if (detail_) Log("Source: %u capture devices", count);
-        for (UINT32 i = 0; i < count; i++) Detail("Source: capture device [%u] \"%s\"", i, ToUtf8(names[i]).c_str());
+        for (UINT32 i = 0; i < count; i++) {
+            Detail("Source: capture device [%u] \"%s\" id %s", i, ToUtf8(names[i]).c_str(), ToUtf8(ids[i]).c_str());
+        }
         std::optional<SourceEvent> failure;
-        const std::optional<size_t> chosen = ChooseCaptureDevice(names, choice_.device);
-        if (chosen && !choice_.device.empty() && names[*chosen] != choice_.device) {
+        const std::optional<size_t> chosen = ChooseCaptureDevice(names, ids, choice_.device, choice_.deviceId);
+        const bool byId = chosen && !choice_.deviceId.empty() && ids[*chosen] == choice_.deviceId;
+        const bool byName = chosen && !choice_.device.empty() && names[*chosen] == choice_.device;
+        if (chosen && !choice_.device.empty() && !byId && !byName) {
             Detail("Source: chosen Capture Card \"%s\" is not present; automatic choice", ToUtf8(choice_.device).c_str());
+        } else if (byName && !byId && !choice_.deviceId.empty()) {
+            Detail("Source: chosen Capture Card found by name; its identifier changed");
         }
         if (chosen) {
             Detail("Source: chosen device [%zu] \"%s\"%s", *chosen, ToUtf8(names[*chosen]).c_str(),
-                   choice_.device.empty() ? " (automatic)" : "");
+                   byId ? " (by identifier)" : byName ? " (by name)" : " (automatic)");
             deviceName_ = names[*chosen];
+            deviceId_ = ids[*chosen];
             hr = devices[*chosen]->ActivateObject(IID_PPV_ARGS(&device_));
             if (FAILED(hr)) {
                 Log("Source: could not open the device hr=0x%08lX", static_cast<unsigned long>(hr));
@@ -492,6 +509,7 @@ private:
     bool detail_ = true;
     std::optional<std::vector<std::wstring>> lastNames_;
     std::wstring deviceName_;
+    std::wstring deviceId_;
     Choice choice_;
     bool choiceChanged_ = false;
     std::vector<CaptureMode> modes_;

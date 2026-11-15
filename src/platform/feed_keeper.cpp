@@ -157,8 +157,9 @@ void FeedKeeper::SetGameRateOverride(GameRateOverride setting) {
     Log("Frames: override %s", NameOf(setting));
 }
 
-void FeedKeeper::SetChoice(const std::wstring& device, std::optional<Resolution> resolution) {
-    choice_ = {device, resolution};
+void FeedKeeper::SetChoice(const std::wstring& device, const std::wstring& deviceId,
+                           std::optional<Resolution> resolution) {
+    choice_ = {device, deviceId, resolution};
     source_->Choose(choice_);
     choiceProven_ = false;
     if (resolution) {
@@ -181,7 +182,7 @@ bool FeedKeeper::FallBackFrom(const SourceEvent& event) {
     Log("Feed: resolution %ux%u did not start (hr=0x%08X, %s); back to the default mode", failed.width, failed.height,
         event.code, NameOf(event.stage));
     if (fellBack_) fellBack_(failed);  // may call SetChoice itself
-    if (choice_.resolution) SetChoice(choice_.device, std::nullopt);
+    if (choice_.resolution) SetChoice(choice_.device, choice_.deviceId, std::nullopt);
     return true;
 }
 

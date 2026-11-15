@@ -75,11 +75,15 @@ public:
     // Name of the Capture Card chosen by Start, even if it could not be
     // opened; empty when there is none. The sound is found by this name.
     virtual std::wstring DeviceName() const = 0;
+    // That device's stable identifier (its symbolic link); empty when none.
+    virtual std::wstring DeviceId() const = 0;
 
-    // The menu's overrides, used from the next Start: a Capture Card by name
-    // and a resolution (empty: the automatic choices, capture_choice.h).
+    // The menu's overrides, used from the next Start: a Capture Card by
+    // identifier or name and a resolution (empty: the automatic choices,
+    // capture_choice.h).
     struct Choice {
         std::wstring device;
+        std::wstring deviceId;  // tried before the name; empty: by name only
         std::optional<Resolution> resolution;
     };
     virtual void Choose(const Choice& choice) = 0;

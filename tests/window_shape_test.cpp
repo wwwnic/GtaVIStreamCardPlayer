@@ -81,6 +81,65 @@ TEST_CASE("the Video Area never goes below the minimum width") {
     CHECK(r.top == 100);
 }
 
+TEST_CASE("a remembered window on a connected monitor reopens where it was, 16:9") {
+    const WindowRect primary{0, 0, 2560, 1440};
+    const WindowRect left{-1920, 200, 0, 1280};  // a second monitor, left of the primary
+    const WindowRect monitors[] = {primary, left};
+    const int slack = 8;
+
+    SUBCASE("on the primary monitor, unchanged") {
+        const WindowRect saved{100, 50, 100 + 1600 + kFrameW, 50 + 900 + kFrameH};
+        CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) == saved);
+    }
+    SUBCASE("on the second monitor, unchanged") {
+        const WindowRect saved{-1800, 300, -1800 + 1280 + kFrameW, 300 + 720 + kFrameH};
+        CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) == saved);
+    }
+    SUBCASE("a Video Area that is not 16:9 (a snap, a frame of another size) is reshaped from its width") {
+        const WindowRect saved{100, 50, 100 + 1600 + kFrameW, 50 + 1000 + kFrameH};
+        CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) ==
+              WindowRect{100, 50, 100 + 1600 + kFrameW, 50 + 900 + kFrameH});
+    }
+    SUBCASE("too small: the minimum size") {
+        const WindowRect saved{100, 50, 300, 200};
+        const auto r = gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack);
+        REQUIRE(r);
+        CHECK(VideoW(*r) == 480);
+        CHECK(VideoH(*r) == 270);
+    }
+    SUBCASE("a few pixels over an edge (the invisible resize border) is still fine") {
+        const WindowRect saved{-7, 0, -7 + 1280 + kFrameW, 720 + kFrameH};
+        CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) == saved);
+    }
+}
+
+TEST_CASE("a remembered window that would not be fully on one monitor is not restored") {
+    const WindowRect primary{0, 0, 1920, 1080};
+    const WindowRect monitors[] = {primary};
+    const int slack = 8;
+    SUBCASE("its monitor is gone") {
+        const WindowRect saved{-1800, 300, -1800 + 1280 + kFrameW, 300 + 720 + kFrameH};
+        CHECK_FALSE(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack));
+    }
+    SUBCASE("partly off-screen") {
+        const WindowRect saved{1000, 500, 1000 + 1280 + kFrameW, 500 + 720 + kFrameH};
+        CHECK_FALSE(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack));
+    }
+    SUBCASE("larger than the monitor") {
+        const WindowRect saved{0, 0, 2560 + kFrameW, 1440 + kFrameH};
+        CHECK_FALSE(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack));
+    }
+    SUBCASE("straddling two monitors") {
+        const WindowRect two[] = {WindowRect{0, 0, 1920, 1080}, WindowRect{1920, 0, 3840, 1080}};
+        const WindowRect saved{1500, 100, 1500 + 1280 + kFrameW, 100 + 720 + kFrameH};
+        CHECK_FALSE(gp::RestoredWindowRect(saved, two, kFrameW, kFrameH, kMinW, slack));
+    }
+    SUBCASE("no monitors at all") {
+        const WindowRect saved{0, 0, 1296, 759};
+        CHECK_FALSE(gp::RestoredWindowRect(saved, {}, kFrameW, kFrameH, kMinW, slack));
+    }
+}
+
 TEST_CASE("a taller frame (a menu bar) is left out of the Video Area") {
     const int menuFrameH = kFrameH + 20;
     const WindowRect r = KeepVideoArea16x9({0, 0, 1280 + kFrameW, 500}, SizingEdge::Right, kFrameW, menuFrameH, kMinW);

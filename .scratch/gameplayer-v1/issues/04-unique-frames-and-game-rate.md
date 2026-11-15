@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (App skeleton showing the Feed picture in a window).
 
-**Status:** ready-for-agent
+**Status:** done (user hand checks pending)
 
 **Gate outcome:** The user could not find a way to run a game at 30 fps, so bit-identical Repeated Frames at 30 fps remain unverified. This ticket is built with a tunable tolerance and diagnostic logging instead. The user will judge Lossless Scaling by taking a 60 fps game to 120 on their 144 Hz monitor (ticket 10).
 
