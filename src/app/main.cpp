@@ -366,13 +366,13 @@ void SaveSettingsNow(App& app, const char* why) {
 void LogSettings(const char* what, const gp::RememberedSettings& r) {
     const gp::ViewerSettings& v = r.viewer;
     gp::Log("Settings: %s: volume %d, muted %s, Audio Delay %d ms, Capture Card %s%s%s, resolution %s, frame rate %s, "
-            "V-sync %s, always on top %s",
+            "V-sync %s, always on top %s, FPS counter %s",
             what, v.audio.volumePercent, v.audio.muted ? "yes" : "no", v.audio.audioDelayMs,
             v.captureCard.empty() ? "automatic" : ("\"" + gp::ToUtf8(v.captureCard) + "\"").c_str(),
             v.captureCardId.empty() ? "" : " id ", gp::ToUtf8(v.captureCardId).c_str(),
             v.resolution ? (std::to_string(v.resolution->width) + "x" + std::to_string(v.resolution->height)).c_str()
                          : "default",
-            gp::NameOf(v.frameRate), v.vsync ? "on" : "off", v.alwaysOnTop ? "on" : "off");
+            gp::NameOf(v.frameRate), v.vsync ? "on" : "off", v.alwaysOnTop ? "on" : "off", v.fpsCounter ? "on" : "off");
     if (r.window) {
         const gp::WindowRect& w = r.window->normal;
         gp::Log("Settings: %s: window %d,%d %dx%d%s", what, w.left, w.top, w.right - w.left, w.bottom - w.top,
