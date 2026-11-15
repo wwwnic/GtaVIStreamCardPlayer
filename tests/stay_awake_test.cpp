@@ -32,6 +32,22 @@ TEST_CASE("the hold is released after 3 quiet seconds, not on a short gap") {
     CHECK(awake.Second(false) == Change::None);
 }
 
+TEST_CASE("execution state flags read as words") {
+    CHECK(gp::ExecutionStateText(0) == "none");
+    CHECK(gp::ExecutionStateText(0x3) == "SYSTEM|DISPLAY");
+    CHECK(gp::ExecutionStateText(0x80000003u) == "SYSTEM|DISPLAY|CONTINUOUS");
+    CHECK(gp::ExecutionStateText(0x1 | 0x40) == "SYSTEM|AWAYMODE");
+    CHECK(gp::ExecutionStateText(0x100) == "0x100");
+}
+
+TEST_CASE("display off or dimmed while held is flagged, otherwise plain") {
+    CHECK(gp::DisplayStateLine(1, true) == "Display: on");
+    CHECK(gp::DisplayStateLine(0, false) == "Display: off");
+    CHECK(gp::DisplayStateLine(0, true) == "Display: off while stay awake is held (should not happen)");
+    CHECK(gp::DisplayStateLine(2, true) == "Display: dimmed while stay awake is held (should not happen)");
+    CHECK(gp::DisplayStateLine(7, false) == "Display: state 7");
+}
+
 TEST_CASE("the hold is taken again when the Feed comes back") {
     StayAwake awake;
     awake.Second(true);

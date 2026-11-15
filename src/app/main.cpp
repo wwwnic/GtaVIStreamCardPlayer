@@ -144,6 +144,7 @@ void SetDefaultSize(HWND window) {
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     LRESULT handled = 0;
+    if (app && message == WM_POWERBROADCAST) app->keepAwake.PowerBroadcast(wParam, lParam);  // observes only
     if (app && app->fullscreen.HandleMessage(message, wParam, lParam, &handled)) return handled;
     if (app && app->feed.HandleMessage(message, wParam, lParam, &handled)) return handled;
     if (message == gp::AnotherLaunchMessage()) {
@@ -256,6 +257,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
         if (!app.presenter.Start(window)) gp::Log("No Presenter: the window stays black");
         app.feed.Start();  // shows Loading, then the Feed or why not; recovers by itself
+        app.keepAwake.Start(window);  // logs display on / off
 
         ShowWindow(window, showCommand);
         SetTimer(window, kStatsTimer, 1000, nullptr);
