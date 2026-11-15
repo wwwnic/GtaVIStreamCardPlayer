@@ -225,7 +225,7 @@ void FeedKeeper::LogFrames() {
         rates.signalRate, NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
         close.closeUnique ? close.closeShareMin : 0.0, uniqueCount ? QpcToMs(uniqueTicks) / uniqueCount : 0.0,
         QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst), QpcToMs(afterWorst),
-        fpsCounter_ ? ("\"" + ToUtf8(FpsCounterText(rates)) + "\"").c_str() : "off");
+        !fpsCounter_ ? "off" : !rates.warm ? "warming up" : ("\"" + ToUtf8(FpsCounterText(rates)) + "\"").c_str());
     loggedTotals_ = now;
 }
 

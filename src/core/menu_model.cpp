@@ -78,7 +78,7 @@ std::wstring HotkeysText() {
            L"M\tMute / unmute\n"
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
-           L"F\tFPS counter (frames shown / Signal Rate)\n"
+           L"F\tFPS counter (frames shown per second)\n"
            L"\nAlt opens the menu (windowed only).";
 }
 

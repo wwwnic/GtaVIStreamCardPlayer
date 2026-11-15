@@ -250,9 +250,19 @@ Second number: output.
 
 GamePlayer's own counter: press F.
 
-It shows Game Rate.
+It shows one number.
 
-Both should agree.
+For example: 30 FPS.
+
+Frames shown per second.
+
+Blank for two seconds
+
+after it starts.
+
+It should match
+
+Lossless Scaling's first number.
 
 ### Did not start?
 
