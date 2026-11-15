@@ -16,6 +16,7 @@
 #include "core/colour.h"
 #include "core/latest_slot.h"
 #include "core/picture_fit.h"
+#include "core/shown_texts.h"
 #include "platform/log.h"
 #include "platform/text_overlay.h"
 
@@ -188,23 +189,19 @@ public:
     }
 
     void ShowText(TextPlace place, VideoAreaText text, int durationMs) {
-        const size_t index = static_cast<size_t>(place);
-        if (index >= TextOverlay::kPlaces) return;
+        bool changed = false;
         {
             std::lock_guard lock(textMutex_);
-            if (texts_[index] == text && durationMs <= 0 && textEndsAt_[index] == 0) return;  // nothing new
-            texts_[index] = std::move(text);
-            textEndsAt_[index] = durationMs > 0 ? GetTickCount64() + static_cast<ULONGLONG>(durationMs) : 0;
+            changed = texts_.Show(place, std::move(text), durationMs, GetTickCount64());
         }
-        Repaint();
+        // The same text again (a held key) only moves its end: the presenting
+        // thread wakes at the old end, finds nothing due and waits again.
+        if (changed) Repaint();
     }
 
     void ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
-        const size_t index = static_cast<size_t>(place);
-        if (index >= TextOverlay::kPlaces) return;
         std::lock_guard lock(textMutex_);
-        texts_[index] = std::move(text);
-        textEndsAt_[index] = 0;
+        texts_.ShowWithNextFrame(place, std::move(text));
     }
 
     void ShowPicture(bool visible) {
@@ -393,7 +390,10 @@ private:
                 if (lastFrame_) ConvertToPicture(*lastFrame_);
             }
 
-            bool draw = repaint_.exchange(false) || EndExpiredTexts();
+            // Both, always: a repaint must not draw a text whose time is up.
+            const bool repaint = repaint_.exchange(false);
+            const bool ended = EndExpiredTexts();
+            bool draw = repaint || ended;
             if (resized_.exchange(false)) {
                 if (!ResizeBackBuffer()) {
                     // No back buffer to draw into, and Present, which reports a
@@ -432,26 +432,14 @@ private:
     // Milliseconds until the next brief text ends; INFINITE when none.
     DWORD NextTextEndMs() {
         std::lock_guard lock(textMutex_);
-        const ULONGLONG now = GetTickCount64();
-        DWORD wait = INFINITE;
-        for (ULONGLONG endsAt : textEndsAt_) {
-            if (endsAt) wait = std::min<DWORD>(wait, endsAt > now ? static_cast<DWORD>(endsAt - now) : 0);
-        }
-        return wait;
+        const std::optional<uint64_t> wait = texts_.MsUntilNextEnd(GetTickCount64());
+        if (!wait) return INFINITE;
+        return static_cast<DWORD>(std::min<uint64_t>(*wait, INFINITE - 1));
     }
 
     bool EndExpiredTexts() {
         std::lock_guard lock(textMutex_);
-        const ULONGLONG now = GetTickCount64();
-        bool ended = false;
-        for (size_t i = 0; i < TextOverlay::kPlaces; i++) {
-            if (textEndsAt_[i] && textEndsAt_[i] <= now) {
-                texts_[i] = {};
-                textEndsAt_[i] = 0;
-                ended = true;
-            }
-        }
-        return ended;
+        return texts_.EndExpired(GetTickCount64());
     }
 
     // False: the swap chain has no usable back buffer (a lost device shows
@@ -601,7 +589,7 @@ private:
         TextOverlay::Texts texts;
         {
             std::lock_guard lock(textMutex_);
-            texts = texts_;
+            texts = texts_.All();
         }
         overlay_.Draw(swapChain_.Get(), texts, backWidth_, backHeight_);
         // V-sync off (default): interval 0 = do not wait for the monitor; with
@@ -631,8 +619,7 @@ private:
     LatestSlot<TimedFrame> slot_;
 
     std::mutex textMutex_;
-    TextOverlay::Texts texts_;
-    std::array<ULONGLONG, TextOverlay::kPlaces> textEndsAt_ = {};  // GetTickCount64; 0 = stays
+    ShownTexts texts_;  // times from GetTickCount64
     TextOverlay overlay_;  // presenting thread (and Start/Stop)
 
     std::mutex statsMutex_;

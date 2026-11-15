@@ -38,9 +38,11 @@ TEST_CASE("playback stays silent until the target fill would remain after the pe
     playout.Push(Ramp(kTargetFrames48k + 50, 60).data(), 60);
     playout.Pull(out.data(), 100);
     // 102 frames make a period of 100 here; the 8 oldest frames beyond the
-    // target were dropped, and the rest plays in order.
-    CHECK(out[0] == doctest::Approx(0.008));
-    CHECK(out[1] == doctest::Approx(-0.008));
+    // target were dropped, and the rest plays in order (fading in from
+    // silence over this first period: frame i has gain (i + 1) / 100).
+    CHECK(out[0] == doctest::Approx(0.008 * 0.01));
+    CHECK(out[1] == doctest::Approx(-0.008 * 0.01));
+    CHECK(out[2 * 49] == doctest::Approx(0.057 * 0.5));
     CHECK(out[2 * 99] == doctest::Approx(0.107).epsilon(0.001));
     CHECK(out[2 * 99 + 1] == doctest::Approx(-0.107).epsilon(0.001));
 }
@@ -84,7 +86,8 @@ TEST_CASE("when sound piles up (overrun) the buffer drops back to the target, ke
     CHECK(stats.overruns == 1);
     playout.Push(Ramp(lots, 12).data(), 12);  // one more packet, enough to start
     playout.Pull(out.data(), 10);
-    CHECK(out[0] == doctest::Approx((lots - kTargetFrames48k) / 1000.0));
+    // The last frame of this first (fading-in) period has the full gain.
+    CHECK(out[2 * 9] == doctest::Approx((lots - kTargetFrames48k + 9) / 1000.0));
     CHECK(playout.TakeStats().fillAverageSeconds == doctest::Approx(SoundPlayout::kTargetFillSeconds).epsilon(0.02));
 }
 
@@ -106,7 +109,7 @@ TEST_CASE("a new gain fades in over one period, then applies to all the sound") 
     SoundPlayout playout(48000, 48000);
     std::vector<float> out(2 * 100);
     StartPlaying(playout, out, 100);
-    CHECK(out[0] == doctest::Approx(0.5));
+    CHECK(out[2 * 99] == doctest::Approx(0.5));
 
     playout.SetGain(0.2f);
     PushSteady(playout, 100);
@@ -130,6 +133,44 @@ TEST_CASE("muting (gain 0) fades out and then plays silence") {
     PushSteady(playout, 100);
     playout.Pull(out.data(), 100);
     CHECK(AllSilent(out));
+}
+
+TEST_CASE("a gain set before the sound starts holds from its first sample: muted gives only silence") {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> out(2 * 480);
+    playout.SetGain(0.0f);  // remembered mute, or a Feed restart while muted
+    PushSteady(playout, kTargetFrames48k + 2 * 480);
+    playout.Pull(out.data(), 480);
+    CHECK(AllSilent(out));
+    PushSteady(playout, 480);
+    playout.Pull(out.data(), 480);
+    CHECK(AllSilent(out));
+
+    SoundPlayout low(48000, 48000);
+    low.SetGain(0.2f);
+    PushSteady(low, kTargetFrames48k + 2 * 480);
+    low.Pull(out.data(), 480);
+    CHECK_FALSE(AllSilent(out));
+    float loudest = 0.0f;
+    for (float s : out) loudest = std::fmax(loudest, std::fabs(s));
+    CHECK(loudest <= 0.1f + 1e-6f);  // never above 20% of the 0.5 sound
+}
+
+TEST_CASE("the sound fades in from silence when it starts and when it resumes after an underrun") {
+    SoundPlayout playout(48000, 48000);
+    const size_t period = 480;
+    std::vector<float> out(2 * period);
+    StartPlaying(playout, out, period);
+    CHECK(out[0] < 0.01f);  // not a jump from silence to full level
+    CHECK(out[2 * (period - 1)] == doctest::Approx(0.5));
+
+    for (int i = 0; i < 5; i++) playout.Pull(out.data(), period);  // runs dry
+    REQUIRE(playout.TakeStats().underruns == 1);
+    PushSteady(playout, kTargetFrames48k + 2 * period);
+    playout.Pull(out.data(), period);
+    REQUIRE_FALSE(AllSilent(out));
+    CHECK(out[0] < 0.01f);
+    CHECK(out[2 * (period - 1)] == doctest::Approx(0.5));
 }
 
 TEST_CASE("the buffer target is the base fill plus the Audio Delay, within the room the buffer has") {
@@ -309,6 +350,47 @@ TEST_CASE("after the Audio Delay changes, drift correction holds the fill at the
     CHECK(slow.underruns == 0);
     CHECK(slow.overruns == 0);
     CHECK(slow.worstFillError < 0.001);
+}
+
+namespace {
+// Plays 10 minutes at no Audio Delay (drift correction has learnt the clock
+// difference by then), sets `audioDelay`, and returns the worst one-second
+// mean fill error over the two minutes after the change (from 5 s after it,
+// when the longer fill has gathered).
+double FillErrorAfterDelayChange(double cardSpeed, double audioDelay) {
+    SoundPlayout playout(48000, 48000);
+    std::vector<float> in(2 * 960, 0.25f);
+    std::vector<float> out(2 * 480);
+    const int changeAt = 600 * 100;
+    double owed = 0.0;
+    double worst = 0.0;
+    for (int i = 0; i < changeAt + 125 * 100; i++) {
+        if (i == changeAt) playout.SetAudioDelay(audioDelay);
+        owed += 480 * cardSpeed;
+        if (owed >= 480) {
+            const size_t frames = static_cast<size_t>(owed);
+            playout.Push(in.data(), frames);
+            owed -= static_cast<double>(frames);
+        }
+        playout.Pull(out.data(), 480);
+        if (i % 100 == 99) {
+            const SoundPlayout::Stats stats = playout.TakeStats();
+            if (i > changeAt + 5 * 100) {
+                CHECK(stats.underruns == 0);
+                CHECK(stats.overruns == 0);
+                worst = std::fmax(worst, std::fabs(stats.fillAverageSeconds - SoundPlayout::kTargetFillSeconds - audioDelay));
+            }
+        }
+    }
+    return worst;
+}
+}  // namespace
+
+// The clock difference does not change with the Audio Delay, so what drift
+// correction has learnt of it holds the new fill from the start.
+TEST_CASE("right after an Audio Delay change the fill sits at the new target, not minutes later") {
+    CHECK(FillErrorAfterDelayChange(1.0003, 0.1) < 0.001);
+    CHECK(FillErrorAfterDelayChange(0.9997, 0.25) < 0.001);
 }
 
 TEST_CASE("48 kHz capture plays on a 44.1 kHz output without glitches, and the other way round") {

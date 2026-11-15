@@ -52,6 +52,10 @@ public:
     void SetMuted(bool muted);
     int AudioDelayMs() const { return settings_.audioDelayMs; }  // 0-500; later sound
     void SetAudioDelayMs(int ms);
+    // All three at once: the sound goes straight to the new gain, never
+    // through a mix of old and new values (muted 5% to unmuted 0% is never
+    // briefly 5%). One log line.
+    void SetAudio(const AudioSettings& audio);
 
 private:
     void ApplySettings();

@@ -2,8 +2,6 @@
 
 #include <windows.h>
 
-#include "core/feedback_line.h"
-
 namespace gp {
 
 namespace {
@@ -19,7 +17,7 @@ std::wstring Widen(const std::string& text) {
 }  // namespace
 
 void Feedback::Show(const std::string& line) {
-    presenter_.ShowText(TextPlace::Top, VideoAreaText{Widen(line), L""}, static_cast<int>(FeedbackLine::kShowMs));
+    presenter_.ShowText(TextPlace::Top, VideoAreaText{Widen(line), L""}, kShowMs);
 }
 
 }  // namespace gp

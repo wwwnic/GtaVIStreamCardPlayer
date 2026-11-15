@@ -14,6 +14,7 @@ void SoundPlayout::SetOutputRate(uint32_t outputRate) {
     std::lock_guard lock(mutex_);
     outputRate_ = outputRate;
     playing_ = false;
+    keepDrift_ = false;  // another device: another clock
 }
 
 namespace {
@@ -94,7 +95,18 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
         }
         ring_.Discard(ring_.Fill() - start);  // start at the target, not with extra delay
         playing_ = true;
-        correction_.Reset(TargetSeconds());
+        // Every start fades in from silence, to the gain wanted now: no jump
+        // from silence, and nothing louder than asked (a new playout's gain
+        // may have been set to mute before any sound played).
+        appliedGain_ = 0.0f;
+        // After an Audio Delay change the clocks are the same two: keep what
+        // drift correction has learnt of their difference.
+        if (keepDrift_) {
+            correction_.Resume(TargetSeconds());
+        } else {
+            correction_.Reset(TargetSeconds());
+        }
+        keepDrift_ = false;
         stats_.rate = 1.0;
     }
     const double step = nominalStep * stats_.rate;
@@ -119,6 +131,7 @@ void SoundPlayout::Pull(float* stereo, size_t frames) {
         delaySeconds_ = pendingDelaySeconds_;
         retarget_ = false;
         playing_ = false;
+        keepDrift_ = true;
         if (ring_.Fill() > TargetFrames()) ring_.Discard(ring_.Fill() - TargetFrames());
         RecordFill(static_cast<double>(ring_.Fill()) / inputRate_);
         return;

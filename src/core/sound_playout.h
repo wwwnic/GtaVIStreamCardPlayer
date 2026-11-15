@@ -55,7 +55,8 @@ public:
     // later. Any thread. While playing, a change fades the sound out over one
     // period, then playback re-primes at the new target (quiet while a longer
     // fill gathers, extra sound dropped for a shorter one) and fades back in.
-    // Drift correction then holds the fill at the new target.
+    // Drift correction then holds the fill at the new target, keeping the
+    // clock difference it has learnt.
     void SetAudioDelay(double seconds);
 
     // The fill the buffer holds (or is moving to): base target plus Audio Delay.
@@ -67,6 +68,8 @@ public:
     // Fills exactly `frames` output frames: sound when there is enough,
     // otherwise silence. Playback starts once the target fill would remain
     // after the period; older sound beyond that is dropped at the start.
+    // Each start (the first, after an underrun, an Audio Delay change or a
+    // new output rate) fades in from silence over its first period.
     void Pull(float* stereo, size_t frames);
 
     struct Stats {
@@ -98,10 +101,11 @@ private:
     std::vector<float> scratch_;
     Stats stats_;
     float gain_ = 1.0f;         // wanted
-    float appliedGain_ = 1.0f;  // reached at the end of the previous period
+    float appliedGain_ = 0.0f;  // reached at the end of the previous period; 0 before each start
     double delaySeconds_ = 0.0;         // the Audio Delay the target uses now
     double pendingDelaySeconds_ = 0.0;  // wanted; applied when playback re-primes
     bool retarget_ = false;             // fade out and re-prime at the next Pull
+    bool keepDrift_ = false;            // that re-prime keeps the learnt clock difference
     double fillSum_ = 0.0;
     uint64_t fillReadings_ = 0;
 };

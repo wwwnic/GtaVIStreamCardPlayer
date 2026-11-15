@@ -87,9 +87,7 @@ void LogStats(App& app) {
 void PressAudio(App& app, gp::AudioKey audioKey, const char* from) {
     const gp::AudioSettings now = app.settings.audio;
     const gp::AudioKeyResult pressed = gp::PressAudioKey(now, audioKey);
-    if (pressed.settings.muted != now.muted) app.sound.SetMuted(pressed.settings.muted);
-    if (pressed.settings.volumePercent != now.volumePercent) app.sound.SetVolume(pressed.settings.volumePercent);
-    if (pressed.settings.audioDelayMs != now.audioDelayMs) app.sound.SetAudioDelayMs(pressed.settings.audioDelayMs);
+    if (pressed.settings != now) app.sound.SetAudio(pressed.settings);  // one gain, never an in-between one
     app.settings.audio = pressed.settings;
     app.remembered.audio = pressed.settings;
     gp::Log("%s: %s", from, pressed.feedback.c_str());
