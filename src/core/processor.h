@@ -28,6 +28,9 @@ public:
     virtual ~Processor() = default;
     // Appends the frames to show to `out` (which arrives empty).
     virtual void Process(FramePtr captured, std::vector<TimedFrame>& out) = 0;
+    // Called after the frames from Process were handed to the Presenter: work
+    // that must not delay presentation (measurements for the log).
+    virtual void AfterSubmit() {}
 };
 
 // Shows every captured frame unchanged, as soon as possible.

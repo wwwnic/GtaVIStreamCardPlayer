@@ -5,7 +5,8 @@
 
 namespace gp {
 
-FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, double* differingShare) {
+FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, double* differingShare,
+                         double closeShare) {
     if (a.width != b.width || a.height != b.height || a.format != b.format || a.pixels.size() != b.pixels.size()) {
         return FrameMatch::Different;
     }
@@ -24,7 +25,8 @@ FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, doubl
     const size_t whole = size / 8;
     const size_t words = whole + (size % 8 ? 1 : 0);
     const double nearLimit = static_cast<double>(words) * (tolerance > 0 ? tolerance : 0.0);
-    const double limit = static_cast<double>(words) * (tolerance > kCloseShare ? tolerance : kCloseShare);
+    const double limit = static_cast<double>(words) * (tolerance > closeShare ? tolerance : closeShare);
+    if (limit <= 0) return FrameMatch::Different;  // exact only, closeness not wanted
     size_t differing = 0;
     for (size_t i = 0; i < whole; i++) {
         uint64_t wa, wb;
@@ -62,9 +64,18 @@ UniqueFrameProcessor::UniqueFrameProcessor(int64_t ticksPerSecond, double tolera
 
 void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& out) {
     double share = 1.0;  // the first frame, or one of another size: not close
+    // Exact only: stop at the first differing byte and measure closeness later,
+    // so a Unique Frame reaches the Presenter without a full scan.
+    const bool deferCloseness = tolerance_ <= 0;
     const FrameMatch match =
-        reference_ ? CompareFrames(*captured, *reference_, tolerance_, &share) : FrameMatch::Different;
+        reference_ ? CompareFrames(*captured, *reference_, tolerance_, &share, deferCloseness ? 0.0 : kCloseShare)
+                   : FrameMatch::Different;
     const bool unique = match == FrameMatch::Different;
+    if (unique && deferCloseness && reference_) {
+        measureNew_ = captured;
+        measureOld_ = reference_;
+        share = 1.0;
+    }
     if (unique) {
         reference_ = captured;
         referenceShown_ = false;
@@ -108,7 +119,21 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
     if (emit) out.push_back({std::move(captured), arrival});
 }
 
+void UniqueFrameProcessor::AfterSubmit() {
+    if (!measureNew_) return;
+    double share = 1.0;
+    CompareFrames(*measureNew_, *measureOld_, 0.0, &share, kCloseShare);
+    measureNew_.reset();
+    measureOld_.reset();
+    if (share >= kCloseShare) return;
+    std::lock_guard lock(mutex_);
+    closeness_.closeUnique++;
+    if (share < closeness_.closeShareMin) closeness_.closeShareMin = share;
+}
+
 void UniqueFrameProcessor::Reset() {
+    measureNew_.reset();
+    measureOld_.reset();
     reference_.reset();
     referenceShown_ = false;
     sinceEmitted_ = 2;

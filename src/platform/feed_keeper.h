@@ -71,6 +71,7 @@ private:
     // Time spent in Process, the Source's thread; read and reset once a second.
     struct ProcessTiming {
         std::atomic<int64_t> uniqueTicks{0}, uniqueWorst{0}, repeatTicks{0}, repeatWorst{0};
+        std::atomic<int64_t> afterWorst{0};  // AfterSubmit (closeness, after the frame is handed on)
         std::atomic<uint32_t> uniqueCount{0}, repeatCount{0};
     } timing_;
     std::unique_ptr<Source> source_;

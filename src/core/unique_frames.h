@@ -37,7 +37,9 @@ enum class FrameMatch {
 // kCloseShare (and under the tolerance's limit); otherwise 1. Frames of another
 // size or format are Different. Counting stops as soon as the share passes
 // both limits, so a moving picture costs little; an identical one is one memcmp.
-FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, double* differingShare = nullptr);
+// closeShare: pass 0 to stop at the first difference when tolerance is 0.
+FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, double* differingShare = nullptr,
+                         double closeShare = kCloseShare);
 
 // How close the calls were, since the previous TakeCloseness.
 struct UniqueCloseness {
@@ -81,6 +83,9 @@ public:
 
     // Emits the frame at once if it is to be shown; never waits for a later one.
     void Process(FramePtr captured, std::vector<TimedFrame>& out) override;
+    // With tolerance 0 a Unique Frame is decided at the first differing byte;
+    // how close it was (UniqueCloseness) is measured here, after it is shown.
+    void AfterSubmit() override;
 
     // Forgets the previous frames (a new Source started): the next frame is shown.
     // Call only while Process is not running.
@@ -121,8 +126,9 @@ private:
     bool referenceShown_ = false; // override 30: false while that frame waits its turn
     uint32_t sinceEmitted_ = 2;   // captured frames since the last emitted one
     std::vector<FramePtr> recent_;
+    FramePtr measureNew_, measureOld_;  // a Unique Frame and the one before, for AfterSubmit
 
-    std::mutex mutex_;            // guards everything below
+    std::mutex mutex_;           // guards everything below
     Arrival history_[kHistory] = {};
     size_t historyNext_ = 0;
     size_t historyCount_ = 0;
