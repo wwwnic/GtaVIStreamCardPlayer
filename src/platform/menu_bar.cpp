@@ -77,6 +77,7 @@ MenuBar::MenuBar() {
     Append(view_, kMenuFullscreen, view.fullscreen, false);
     Append(view_, kMenuAlwaysOnTop, view.alwaysOnTop, false);
     Append(view_, kMenuVsync, view.vsync, false);
+    Append(view_, kMenuFpsCounter, view.fpsCounter, false);
 
     Append(help_, kMenuHotkeys, {L"&Hotkeys"}, false);
     Append(help_, kMenuAbout, {L"&About GamePlayer"}, false);
@@ -125,6 +126,7 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuFullscreen, view.fullscreen);
     Update(view_, kMenuAlwaysOnTop, view.alwaysOnTop);
     Update(view_, kMenuVsync, view.vsync);
+    Update(view_, kMenuFpsCounter, view.fpsCounter);
 }
 
 std::optional<std::wstring> MenuBar::CaptureCardFor(UINT id) const {

@@ -33,6 +33,7 @@ enum MenuCommand : UINT {
     kMenuFullscreen = 1400,
     kMenuAlwaysOnTop,
     kMenuVsync,
+    kMenuFpsCounter,
     kMenuHotkeys = 1500,
     kMenuAbout,
 };

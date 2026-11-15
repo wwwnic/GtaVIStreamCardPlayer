@@ -23,6 +23,7 @@ RememberedSettings Changed() {
     s.viewer.audio.audioDelayMs = 150;
     s.viewer.alwaysOnTop = true;
     s.viewer.vsync = true;
+    s.viewer.fpsCounter = true;
     s.window = gp::SavedWindow{WindowRect{-1800, 120, -1800 + 1296, 120 + 759}, true};
     return s;
 }
@@ -37,6 +38,7 @@ void CheckDefaults(const RememberedSettings& s) {
     CHECK(s.viewer.audio.audioDelayMs == 0);
     CHECK_FALSE(s.viewer.alwaysOnTop);
     CHECK_FALSE(s.viewer.vsync);
+    CHECK_FALSE(s.viewer.fpsCounter);
     CHECK_FALSE(s.window.has_value());
 }
 
@@ -178,10 +180,16 @@ TEST_CASE("unknown keys, comments, spaces, Windows line ends and a BOM are all f
     CHECK_FALSE(s.viewer.alwaysOnTop);
 }
 
-TEST_CASE("fullscreen and the FPS counter are not part of the file") {
+TEST_CASE("fullscreen is not part of the file") {
     const std::string text = SettingsToText(Changed());
     CHECK(text.find("fullscreen") == std::string::npos);
-    CHECK(text.find("fps") == std::string::npos);
+}
+
+TEST_CASE("the FPS counter is remembered, off unless the file says on") {
+    CHECK(SettingsToText(Changed()).find("fps_counter=true\n") != std::string::npos);
+    CHECK(SettingsFromText("version=1\nfps_counter=true\n").viewer.fpsCounter);
+    CHECK_FALSE(SettingsFromText("version=1\nfps_counter=sometimes\n").viewer.fpsCounter);
+    CHECK_FALSE(SettingsFromText("version=1\n").viewer.fpsCounter);
 }
 
 TEST_CASE("the file is written once the settings have stayed the same for a second") {

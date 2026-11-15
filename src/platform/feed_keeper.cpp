@@ -188,9 +188,9 @@ bool FeedKeeper::FallBackFrom(const SourceEvent& event) {
 
 FrameRates FeedKeeper::Rates() { return processor_->RatesAt(QpcNow()); }
 
-void FeedKeeper::ToggleFpsCounter() {
-    fpsCounter_ = !fpsCounter_;
-    Log("Key: FPS counter %s", fpsCounter_ ? "on" : "off");
+void FeedKeeper::SetFpsCounter(bool on) {
+    fpsCounter_ = on;
+    Log("Frames: FPS counter %s", fpsCounter_ ? "on" : "off");
     UpdateFpsCounter();
 }
 

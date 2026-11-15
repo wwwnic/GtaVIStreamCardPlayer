@@ -113,6 +113,13 @@ bool HandleAudioKey(App& app, WPARAM key, LPARAM flags) {
     return true;
 }
 
+// The F key and View > FPS counter.
+void ToggleFpsCounter(App& app, const char* from) {
+    app.settings.fpsCounter = app.remembered.fpsCounter = !app.settings.fpsCounter;
+    gp::Log("%s: FPS counter %s", from, app.settings.fpsCounter ? "on" : "off");
+    app.feed.SetFpsCounter(app.settings.fpsCounter);
+}
+
 // Every setting at once: at launch, after loading the remembered ones.
 void ApplyAllSettings(App& app) {
     const gp::ViewerSettings& s = app.settings;
@@ -121,6 +128,7 @@ void ApplyAllSettings(App& app) {
     if (app.sound.AudioDelayMs() != s.audio.audioDelayMs) app.sound.SetAudioDelayMs(s.audio.audioDelayMs);
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
     app.presenter.SetVsync(s.vsync);
+    if (s.fpsCounter) app.feed.SetFpsCounter(true);  // with the first frame, no present of its own
     if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
     if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
     gp::Log("Menu: V-sync %s", s.vsync ? "on" : "off");
@@ -205,6 +213,7 @@ void HandleMenuCommand(App& app, UINT id) {
         gp::Log("Menu: V-sync %s (%s)", s.vsync ? "on" : "off",
                 s.vsync ? "presents wait for the refresh, sync interval 1" : "present on arrival, tearing allowed");
         break;
+    case gp::kMenuFpsCounter: ToggleFpsCounter(app, "Menu"); break;
     case gp::kMenuHotkeys:
         gp::Log("Menu: Hotkeys");
         MessageBoxW(app.window, gp::HotkeysText().c_str(), L"GamePlayer hotkeys", MB_OK | MB_ICONINFORMATION);
@@ -435,7 +444,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_KEYDOWN:
         if (app && HandleAudioKey(*app, wParam, lParam)) return 0;
         if (app && wParam == 'F') {
-            if (!(lParam & (1 << 30))) app->feed.ToggleFpsCounter();  // held F toggles once
+            if (!(lParam & (1 << 30))) ToggleFpsCounter(*app, "Key");  // held F toggles once
             return 0;
         }
         break;

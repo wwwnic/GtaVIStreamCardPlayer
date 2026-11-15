@@ -46,6 +46,7 @@ struct ViewMenu {
     MenuItem fullscreen;
     MenuItem alwaysOnTop;
     MenuItem vsync;
+    MenuItem fpsCounter;  // in step with the F key
 };
 ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn);
 
