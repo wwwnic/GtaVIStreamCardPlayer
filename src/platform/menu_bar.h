@@ -30,6 +30,8 @@ enum MenuCommand : UINT {
     kMenuDelayLater,
     kMenuDelayEarlier,
     kMenuDelayReset,
+    kMenuVolumeShown,  // greyed value lines, never sent as commands
+    kMenuDelayShown,
     kMenuFullscreen = 1400,
     kMenuAlwaysOnTop,
     kMenuVsync,
@@ -51,7 +53,7 @@ public:
     struct State {
         ViewerSettings settings;
         bool fullscreen = false;
-        std::wstring deviceInUse;
+        CaptureCardEntry deviceInUse;    // the one opened last, playing or not
         std::vector<CaptureMode> modes;  // the card's mode list
     };
     // WM_INITMENUPOPUP: brings every check mark and value up to date; the
@@ -60,14 +62,14 @@ public:
 
     // WM_COMMAND from a list: the Capture Card or resolution it stands for.
     // Resolution: an inner empty optional is "Default (1080p)".
-    std::optional<std::wstring> CaptureCardFor(UINT id) const;
+    std::optional<CaptureCardEntry> CaptureCardFor(UINT id) const;
     std::optional<std::optional<Resolution>> ResolutionFor(UINT id) const;
 
 private:
     HMENU bar_ = nullptr;
     HMENU device_ = nullptr, captureCard_ = nullptr, resolution_ = nullptr, rate_ = nullptr;
     HMENU audio_ = nullptr, view_ = nullptr, help_ = nullptr;
-    std::vector<std::wstring> cards_;           // as listed in captureCard_
+    std::vector<CaptureCardEntry> cards_;       // as listed in captureCard_
     std::vector<OfferedResolution> offered_;    // as listed in resolution_, after the default
 };
 

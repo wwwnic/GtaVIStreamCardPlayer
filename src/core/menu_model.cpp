@@ -23,9 +23,21 @@ std::wstring SizeText(uint32_t width, uint32_t height) {
 
 }  // namespace
 
-std::vector<MenuItem> CaptureCardItems(std::span<const std::wstring> present, const std::wstring& inUse) {
+std::vector<MenuItem> CaptureCardItems(std::span<const CaptureCardEntry> present, const CaptureCardEntry& inUse) {
     std::vector<MenuItem> items;
-    for (const std::wstring& name : present) items.push_back({name, !inUse.empty() && name == inUse, true});
+    for (size_t i = 0; i < present.size(); i++) {
+        const CaptureCardEntry& card = present[i];
+        const bool byId = !card.id.empty() && !inUse.id.empty();
+        const bool checked = byId ? card.id == inUse.id : !inUse.name.empty() && card.name == inUse.name;
+        size_t same = 0, number = 0;
+        for (size_t j = 0; j < present.size(); j++) {
+            if (present[j].name != card.name) continue;
+            same++;
+            if (j <= i) number = same;
+        }
+        const std::wstring label = same > 1 ? card.name + L" (" + std::to_wstring(number) + L")" : card.name;
+        items.push_back({label, checked, true});
+    }
     if (items.empty()) items.push_back({L"No capture card found", false, false});
     return items;
 }
@@ -85,7 +97,8 @@ std::wstring HotkeysText() {
 std::wstring AboutText(const AboutInfo& info) {
     std::wstring text = std::wstring(L"GamePlayer ") + kViewerVersion + L"\n";
     text += L"Shows the Console's picture and sound from the Capture Card.\n\n";
-    text += L"Capture Card: " + (info.device.empty() ? std::wstring(L"none") : info.device) + L"\n";
+    text += L"Capture Card: " + (info.device.empty() ? std::wstring(L"none") : info.device) +
+            (!info.device.empty() && !info.mode ? L" (not playing)" : L"") + L"\n";
     text += L"Capture mode: ";
     if (info.mode) {
         const CaptureMode& mode = *info.mode;

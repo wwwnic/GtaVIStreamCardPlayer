@@ -22,9 +22,11 @@ struct MenuItem {
     bool enabled = true;
 };
 
-// Device > Capture Card: the present devices, the one in use checked. With
-// none present, one greyed line saying so.
-std::vector<MenuItem> CaptureCardItems(std::span<const std::wstring> present, const std::wstring& inUse);
+// Device > Capture Card: the present devices, the one in use (opened last,
+// playing or not) checked: by identifier, by name when either has none.
+// Two devices of the same name are numbered in list order ("USB Video (2)").
+// With none present, one greyed line saying so.
+std::vector<MenuItem> CaptureCardItems(std::span<const CaptureCardEntry> present, const CaptureCardEntry& inUse);
 
 // Device > Resolution: "Default (1080p)" first, then `offered` in order
 // ("1280x720 (60 fps)"). `chosen` is checked; the default when none is chosen
@@ -55,8 +57,8 @@ std::wstring HotkeysText();
 
 // Help > About: name, version and what is in use now.
 struct AboutInfo {
-    std::wstring device;              // empty: none
-    std::optional<CaptureMode> mode;  // empty: none
+    std::wstring device;              // the one opened last; empty: none
+    std::optional<CaptureMode> mode;  // empty: none (with a device: it is not playing)
     FrameRates rates;
     GameRateOverride frameRate = GameRateOverride::Auto;  // not Auto: the shown rate is added
 };

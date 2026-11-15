@@ -66,9 +66,9 @@ MenuBar::MenuBar() {
     Append(audio_, kMenuVolumeDown, {L"Volume down\tDown"}, false);
     Append(audio_, kMenuMute, audio.mute, false);
     AppendMenuW(audio_, MF_SEPARATOR, 0, nullptr);
-    Append(audio_, 0, audio.volume, false);  // a value, not a command
+    Append(audio_, kMenuVolumeShown, audio.volume, false);  // a value, not a command
     AppendMenuW(audio_, MF_SEPARATOR, 0, nullptr);
-    Append(audio_, 0, audio.audioDelay, false);
+    Append(audio_, kMenuDelayShown, audio.audioDelay, false);
     Append(audio_, kMenuDelayLater, {L"Audio Delay +50 ms (sound later)\tK"}, false);
     Append(audio_, kMenuDelayEarlier, {L"Audio Delay -50 ms (sound earlier)\tJ"}, false);
     Append(audio_, kMenuDelayReset, audio.resetDelay, false);
@@ -114,13 +114,8 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     const AudioMenu audio = AudioItems(state.settings.audio);
     Update(audio_, kMenuMute, audio.mute);
     Update(audio_, kMenuDelayReset, audio.resetDelay);
-    // The two value lines have no id: by position (4 and 6, see the constructor).
-    MENUITEMINFOW info = {sizeof info};
-    info.fMask = MIIM_STRING;
-    info.dwTypeData = const_cast<wchar_t*>(audio.volume.label.c_str());
-    SetMenuItemInfoW(audio_, 4, TRUE, &info);
-    info.dwTypeData = const_cast<wchar_t*>(audio.audioDelay.label.c_str());
-    SetMenuItemInfoW(audio_, 6, TRUE, &info);
+    Update(audio_, kMenuVolumeShown, audio.volume);
+    Update(audio_, kMenuDelayShown, audio.audioDelay);
 
     const ViewMenu view = ViewItems(state.settings, state.fullscreen);
     Update(view_, kMenuFullscreen, view.fullscreen);
@@ -129,7 +124,7 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuFpsCounter, view.fpsCounter);
 }
 
-std::optional<std::wstring> MenuBar::CaptureCardFor(UINT id) const {
+std::optional<CaptureCardEntry> MenuBar::CaptureCardFor(UINT id) const {
     if (id < kMenuCaptureCardFirst || id >= kMenuCaptureCardFirst + cards_.size()) return std::nullopt;
     return cards_[id - kMenuCaptureCardFirst];
 }

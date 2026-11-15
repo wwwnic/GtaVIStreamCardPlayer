@@ -575,14 +575,19 @@ std::unique_ptr<Source> MakeMediaFoundationSource() {
     return std::make_unique<MediaFoundationSource>();
 }
 
-std::vector<std::wstring> ListCaptureDevices() {
+std::vector<CaptureCardEntry> ListCaptureDevices() {
     IMFActivate** devices = nullptr;
     UINT32 count = 0;
     if (FAILED(EnumerateVideoCaptureDevices(&devices, &count))) return {};
-    std::vector<std::wstring> names = NamesOf(devices, count);
-    for (UINT32 i = 0; i < count; i++) devices[i]->Release();
+    const std::vector<std::wstring> names = NamesOf(devices, count);
+    const std::vector<std::wstring> ids = IdsOf(devices, count);
+    std::vector<CaptureCardEntry> cards;
+    for (UINT32 i = 0; i < count; i++) {
+        cards.push_back({names[i], ids[i]});
+        devices[i]->Release();
+    }
     CoTaskMemFree(devices);
-    return names;
+    return cards;
 }
 
 }  // namespace gp

@@ -30,6 +30,14 @@ struct Resolution {
     bool operator==(const Resolution&) const = default;
 };
 
+// One video capture device present: its friendly name and its identifier
+// (symbolic link; two cards of the same model differ only in this).
+struct CaptureCardEntry {
+    std::wstring name;
+    std::wstring id;
+    bool operator==(const CaptureCardEntry&) const = default;
+};
+
 // Index of the device to open: the GC553 Pro (by name) when present, else
 // another GC553, otherwise the first device. Empty when there are no devices.
 std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames);
@@ -59,11 +67,14 @@ struct OfferedResolution {
 };
 
 // The sizes the Viewer offers to capture in, smallest first: uncompressed
-// (YUY2, NV12) modes at 60 fps or below, never an MJPEG mode nor an
+// (YUY2, NV12) modes at 60 fps or below (kMaxOfferedFps), never an MJPEG mode nor an
 // uncompressed one listed with an MJPEG twin of the same size and rate (on
 // the GC553 Pro those are full range BT.601, probably MJPEG-derived). Per size
 // the rate nearest 60 wins (never above), then YUY2 over NV12.
 std::vector<OfferedResolution> OfferedResolutions(std::span<const CaptureMode> modes);
+// "60 fps or below", with room only for a 60 written as a long fraction
+// (10000000/166666 is 60.0002); 60.25 is above.
+inline constexpr double kMaxOfferedFps = 60.01;
 
 // Which audio capture endpoint carries the Feed sound.
 struct SoundEndpointChoice {

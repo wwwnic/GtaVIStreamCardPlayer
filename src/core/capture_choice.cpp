@@ -90,7 +90,7 @@ bool HasMjpegTwin(std::span<const CaptureMode> modes, const CaptureMode& mode) {
 std::optional<double> OfferCost(std::span<const CaptureMode> modes, const CaptureMode& mode) {
     if (!mode.format || mode.width == 0 || mode.height == 0 || mode.fpsDenominator == 0) return std::nullopt;
     const double fps = mode.Fps();
-    if (fps <= 0.0 || fps > 60.5 || HasMjpegTwin(modes, mode)) return std::nullopt;
+    if (fps <= 0.0 || fps > kMaxOfferedFps || HasMjpegTwin(modes, mode)) return std::nullopt;
     const double below = 60.0 - fps;
     const double band = below < 1.0 ? 0.0 : below;
     const double formatCost = (*mode.format == PixelFormat::YUY2) ? 0.0 : 10.0;
