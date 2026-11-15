@@ -81,7 +81,7 @@ TEST_CASE("the Video Area never goes below the minimum width") {
     CHECK(r.top == 100);
 }
 
-TEST_CASE("a remembered window on a connected monitor reopens where it was, 16:9") {
+TEST_CASE("a remembered window on a connected monitor reopens where it was, at its size") {
     const WindowRect primary{0, 0, 2560, 1440};
     const WindowRect left{-1920, 200, 0, 1280};  // a second monitor, left of the primary
     const WindowRect monitors[] = {primary, left};
@@ -95,10 +95,11 @@ TEST_CASE("a remembered window on a connected monitor reopens where it was, 16:9
         const WindowRect saved{-1800, 300, -1800 + 1280 + kFrameW, 300 + 720 + kFrameH};
         CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) == saved);
     }
-    SUBCASE("a Video Area that is not 16:9 (a snap, a frame of another size) is reshaped from its width") {
+    SUBCASE("a Video Area that is not 16:9 (a snap) keeps its size") {
         const WindowRect saved{100, 50, 100 + 1600 + kFrameW, 50 + 1000 + kFrameH};
-        CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) ==
-              WindowRect{100, 50, 100 + 1600 + kFrameW, 50 + 900 + kFrameH});
+        CHECK(gp::RestoredWindowRect(saved, monitors, kFrameW, kFrameH, kMinW, slack) == saved);
+        const WindowRect leftHalf{-7, 0, 1280 + 7, 1440 + 7};  // snapped to the left half
+        CHECK(gp::RestoredWindowRect(leftHalf, monitors, kFrameW, kFrameH, kMinW, slack) == leftHalf);
     }
     SUBCASE("too small: the minimum size") {
         const WindowRect saved{100, 50, 300, 200};

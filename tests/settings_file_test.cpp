@@ -162,6 +162,52 @@ TEST_CASE("a capture card name that is not valid UTF-8 means the automatic choic
     CHECK(s.viewer.captureCardId.empty());
 }
 
+TEST_CASE("overlong UTF-8 is not valid UTF-8: no value") {
+    // '/' written in two, three and four bytes, and the C0 / C1 leads.
+    for (const char* bad : {"\xC0\xAF", "\xC1\xBF", "\xE0\x80\xAF", "\xF0\x80\x80\xAF", "Live\xC0\x80"}) {
+        CAPTURE(bad);
+        const RememberedSettings name =
+            SettingsFromText(std::string("version=1\ncapture_card=") + bad + "\ncapture_card_id=abc\n");
+        CHECK(name.viewer.captureCard.empty());
+        CHECK(name.viewer.captureCardId.empty());
+        const RememberedSettings id =
+            SettingsFromText(std::string("version=1\ncapture_card=Live\ncapture_card_id=") + bad + "\n");
+        CHECK(id.viewer.captureCard == L"Live");
+        CHECK(id.viewer.captureCardId.empty());
+    }
+    SUBCASE("the shortest forms at each length still read") {
+        const RememberedSettings s =
+            SettingsFromText("version=1\ncapture_card=\xC2\x80\xE0\xA0\x80\xF0\x90\x80\x80\xF4\x8F\xBF\xBF\n");
+        CHECK(s.viewer.captureCard == std::wstring{L'\x80', L'\x800', L'\xD800', L'\xDC00', L'\xDBFF', L'\xDFFF'});
+    }
+}
+
+TEST_CASE("a name with a lone surrogate (not text Windows gives) loads as the automatic choice") {
+    RememberedSettings s;
+    s.viewer.captureCard = std::wstring(L"Card ") + L'\xD800';
+    s.viewer.captureCardId = L"abc";
+    const RememberedSettings loaded = SettingsFromText(SettingsToText(s));
+    CHECK(loaded.viewer.captureCard.empty());
+    CHECK(loaded.viewer.captureCardId.empty());
+}
+
+TEST_CASE("the window and maximised values") {
+    SUBCASE("an invalid maximised keeps the window, not maximised") {
+        const RememberedSettings s = SettingsFromText("version=1\nwindow=10,20,1306,779\nmaximised=perhaps\n");
+        REQUIRE(s.window.has_value());
+        CHECK(s.window->normal == WindowRect{10, 20, 1306, 779});
+        CHECK_FALSE(s.window->maximised);
+    }
+    SUBCASE("maximised without a window is the default window") {
+        CHECK_FALSE(SettingsFromText("version=1\nmaximised=true\n").window.has_value());
+    }
+    SUBCASE("coordinates up to 100000 either way, not beyond") {
+        CHECK(SettingsFromText("version=1\nwindow=-100000,-100000,100000,100000\n").window.has_value());
+        CHECK_FALSE(SettingsFromText("version=1\nwindow=-100001,0,500,500\n").window.has_value());
+        CHECK_FALSE(SettingsFromText("version=1\nwindow=0,0,500,100001\n").window.has_value());
+    }
+}
+
 TEST_CASE("an identifier without a name is dropped: no card was chosen") {
     CHECK(SettingsFromText("version=1\ncapture_card=\ncapture_card_id=\\\\?\\usb#abc\n").viewer.captureCardId.empty());
 }
@@ -205,10 +251,22 @@ TEST_CASE("the file is written once the settings have stayed the same for a seco
         CHECK_FALSE(timing.Second("b3"));
         CHECK(timing.Second("b3"));
     }
-    SUBCASE("a failed write is tried again the next second") {
+    SUBCASE("a failed write is tried again only after a while, not every second") {
         CHECK_FALSE(timing.Second("c"));
         CHECK(timing.Second("c"));
+        timing.Failed("c");
+        for (int s = 1; s < gp::SettingsSaveTiming::kRetrySeconds; s++) CHECK_FALSE(timing.Second("c"));
+        CHECK(timing.Second("c"));  // tried again
+        timing.Failed("c");
+        CHECK_FALSE(timing.Second("c"));
+        CHECK(timing.Differs("c"));  // so exit still tries
+    }
+    SUBCASE("after a failed write, a new change is tried once it settles") {
+        CHECK_FALSE(timing.Second("c"));
         CHECK(timing.Second("c"));
+        timing.Failed("c");
+        CHECK_FALSE(timing.Second("e"));
+        CHECK(timing.Second("e"));
     }
     SUBCASE("changing back to what is on disk writes nothing") {
         CHECK_FALSE(timing.Second("d"));
