@@ -67,6 +67,12 @@ public:
     // showing); frames are still taken. Any thread.
     void ShowPicture(bool visible);
 
+    // V-sync (the View menu). Off, the default: each frame is presented the
+    // moment it is ready, tearing allowed, and the FreeSync monitor follows.
+    // On: presents wait for the monitor's refresh (sync interval 1), no
+    // tearing. From the next present. Any thread.
+    void SetVsync(bool on);
+
     // Counters since the previous call.
     Stats TakeStats();
 

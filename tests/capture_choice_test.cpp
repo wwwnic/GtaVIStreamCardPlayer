@@ -169,3 +169,83 @@ TEST_CASE("compressed, other-size and other-rate modes are never chosen") {
     };
     CHECK(ChooseCaptureMode(modes) == std::nullopt);
 }
+
+namespace {
+const uint32_t k120 = 10000000, k120d = 83333;  // 120.000 fps as the GC553 Pro lists it
+CaptureMode Mjpeg(uint32_t w, uint32_t h, uint32_t n, uint32_t d) { return {kOther, w, h, n, d, true}; }
+
+// Excerpt of the GC553 Pro's real list (GamePlayer.log), in the card's order.
+std::vector<CaptureMode> CardModes() {
+    return {
+        {PixelFormat::YUY2, 1920, 1080, 60, 1},              // 0
+        {PixelFormat::YUY2, 1920, 1080, 60000, 1001},        // 1
+        {PixelFormat::YUY2, 1280, 720, 60, 1},               // 2
+        {PixelFormat::YUY2, 720, 576, 50, 1},                // 3
+        {PixelFormat::YUY2, 720, 576, 30000, 1001},          // 4
+        {PixelFormat::YUY2, 2560, 1440, 50, 1},              // 5
+        {PixelFormat::NV12, 1920, 1080, 5000000, 20833},     // 6  240 fps, MJPEG-paired
+        Mjpeg(1920, 1080, 5000000, 20833),                   // 7
+        {PixelFormat::NV12, 3840, 2160, 60, 1},              // 8  MJPEG-paired
+        Mjpeg(3840, 2160, 60, 1),                            // 9
+        {PixelFormat::NV12, 1920, 1080, k120, k120d},        // 10 the unpaired 1080p120
+        {PixelFormat::NV12, 1280, 720, 60, 1},               // 11
+        {PixelFormat::NV12, 2560, 1440, 60, 1},              // 12
+        {PixelFormat::NV12, 3840, 2160, 30, 1},              // 13
+        {kOther, 640, 480, 60, 1},                           // 14 RGB24
+    };
+}
+}  // namespace
+
+TEST_CASE("the Resolution menu lists each uncompressed size at 60 fps or below, smallest first") {
+    const std::vector<CaptureMode> modes = CardModes();
+    const std::vector<gp::OfferedResolution> offered = gp::OfferedResolutions(modes);
+    REQUIRE(offered.size() == 5);
+    CHECK(offered[0].resolution == gp::Resolution{720, 576});
+    CHECK(offered[1].resolution == gp::Resolution{1280, 720});
+    CHECK(offered[2].resolution == gp::Resolution{1920, 1080});
+    CHECK(offered[3].resolution == gp::Resolution{2560, 1440});
+    CHECK(offered[4].resolution == gp::Resolution{3840, 2160});
+}
+
+TEST_CASE("each offered resolution captures at the rate nearest 60, YUY2 before NV12") {
+    const std::vector<CaptureMode> modes = CardModes();
+    const std::vector<gp::OfferedResolution> offered = gp::OfferedResolutions(modes);
+    REQUIRE(offered.size() == 5);
+    CHECK(offered[0].modeIndex == 3);   // 720x576 only at 50 and 29.97: 50
+    CHECK(offered[1].modeIndex == 2);   // 1280x720 YUY2 60 over NV12 60
+    CHECK(offered[2].modeIndex == 0);   // 1080p YUY2 60
+    CHECK(offered[3].modeIndex == 12);  // 2560x1440 NV12 60 over YUY2 50
+    CHECK(offered[4].modeIndex == 13);  // 4K: NV12 30, never the MJPEG-paired 60
+}
+
+TEST_CASE("MJPEG modes, their uncompressed twins and anything above 60 fps are never offered") {
+    std::vector<CaptureMode> modes = {
+        {PixelFormat::NV12, 1920, 1080, 5000000, 20833},
+        Mjpeg(1920, 1080, 5000000, 20833),
+        {PixelFormat::NV12, 3440, 1440, 60, 1},
+        Mjpeg(3440, 1440, 60, 1),
+        {PixelFormat::NV12, 1920, 1080, k120, k120d},
+        Mjpeg(1280, 720, 30, 1),
+    };
+    CHECK(gp::OfferedResolutions(modes).empty());
+}
+
+TEST_CASE("a chosen resolution picks its offered mode; the default (none) is 1080p60") {
+    const std::vector<CaptureMode> modes = CardModes();
+    CHECK(ChooseCaptureMode(modes, gp::Resolution{2560, 1440}) == 12);
+    CHECK(ChooseCaptureMode(modes, gp::Resolution{720, 576}) == 3);
+    CHECK(ChooseCaptureMode(modes, std::nullopt) == 0);
+}
+
+TEST_CASE("a chosen resolution the card does not offer falls back to the default mode") {
+    const std::vector<CaptureMode> modes = CardModes();
+    CHECK(ChooseCaptureMode(modes, gp::Resolution{3440, 1440}) == 0);
+    CHECK(ChooseCaptureMode(modes, gp::Resolution{640, 480}) == 0);  // RGB24 only here
+}
+
+TEST_CASE("a chosen Capture Card is used when present, otherwise the automatic choice") {
+    std::vector<std::wstring> names = {L"Integrated Webcam", L"Live Gamer ULTRA S GC553Pro"};
+    CHECK(ChooseCaptureDevice(names, L"Integrated Webcam") == 0);
+    CHECK(ChooseCaptureDevice(names, L"Unplugged Card") == 1);
+    CHECK(ChooseCaptureDevice(names, L"") == 1);
+}

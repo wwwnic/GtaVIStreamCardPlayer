@@ -106,13 +106,14 @@ bool FeedKeeper::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESU
         const uint32_t kind = (wParam >> 4) & 15;
         if (kind == kFirstFrame) {
             frameSinceTick_ = false;
+            choiceProven_ = true;
             Apply(machine_.FramesArrived(Now()));
         } else {
             SourceEvent event;
             event.kind = static_cast<SourceEvent::Kind>(kind);
             event.stage = static_cast<SourceStage>(wParam & 15);
             event.code = static_cast<uint32_t>(lParam);
-            Apply(machine_.SourceReported(event, Now()));
+            if (!FallBackFrom(event)) Apply(machine_.SourceReported(event, Now()));
         }
         ShowState();
         return true;
@@ -154,6 +155,34 @@ void FeedKeeper::Tick() {
 void FeedKeeper::SetGameRateOverride(GameRateOverride setting) {
     processor_->SetOverride(setting);
     Log("Frames: override %s", NameOf(setting));
+}
+
+void FeedKeeper::SetChoice(const std::wstring& device, std::optional<Resolution> resolution) {
+    choice_ = {device, resolution};
+    source_->Choose(choice_);
+    choiceProven_ = false;
+    if (resolution) {
+        Log("Feed: choice: device %s, resolution %ux%u", device.empty() ? "automatic" : ToUtf8(device).c_str(),
+            resolution->width, resolution->height);
+    } else {
+        Log("Feed: choice: device %s, resolution default", device.empty() ? "automatic" : ToUtf8(device).c_str());
+    }
+    if (!running_) return;
+    const RecoveryActions actions = machine_.ChoiceChanged(Now());
+    ShowState();  // Loading, before the restart blocks this thread
+    Apply(actions);
+    ShowState();
+}
+
+// A chosen resolution that does not start: back to the default mode, at once.
+bool FeedKeeper::FallBackFrom(const SourceEvent& event) {
+    if (choiceProven_ || !choice_.resolution || !ChosenModeFailed(event)) return false;
+    const Resolution failed = *choice_.resolution;
+    Log("Feed: resolution %ux%u did not start (hr=0x%08X, %s); back to the default mode", failed.width, failed.height,
+        event.code, NameOf(event.stage));
+    if (fellBack_) fellBack_(failed);  // may call SetChoice itself
+    if (choice_.resolution) SetChoice(choice_.device, std::nullopt);
+    return true;
 }
 
 FrameRates FeedKeeper::Rates() { return processor_->RatesAt(QpcNow()); }
@@ -207,6 +236,7 @@ void FeedKeeper::RestartFeed() {
     sound_.Stop();
     soundRunning_ = false;
     source_->Stop();
+    frameSinceTick_ = false;  // a frame from the stopped Source must not count for the new one
     processor_->Reset();  // the new Source's first frame is always shown
     const uint32_t generation = ++generation_;
     machine_.FeedRestarted(began);

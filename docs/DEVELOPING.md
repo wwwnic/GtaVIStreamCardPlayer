@@ -20,6 +20,8 @@ Builds the test program and runs it (`build\gameplayer_tests.exe`, doctest). It 
 
 F11 toggles borderless fullscreen; Esc leaves it. Up / Down change the volume, M mutes, J / K move the sound 50 ms earlier / later (Audio Delay, 0-500 ms); each shows a short line top-right. F toggles the FPS counter top-left ("Game Rate / Signal Rate", off at launch; drawn only into frames presented anyway, so it never adds a present and freezes on a still picture). `--rate auto|30|60` sets the Game Rate override, `--tolerance X` the near-duplicate tolerance (e.g. 0.005), for one run. Once a second the log has a `Frames:` line: arrived, unique, repeats caught exactly and by the tolerance, presented, dropped, both rates, the largest near-repeat share and the closest Unique Frames (under 1% of words differing: a sign repeats are not bit-identical), and the compare time before and after presenting. Only one copy runs: while one is open, starting another just brings it forward (so a smoke run does nothing while the user's copy is open).
 
+The menu bar (windowed only, hidden in fullscreen) overrides the automatic choices: Capture Card, Resolution, Frame rate, the audio values, Fullscreen, Always on top, V-sync (off by default). Each choice logs a `Menu:` line; `Menu: open` / `closed` bracket an open menu.
+
 `--run N` closes the app by itself after N seconds, for unattended smoke runs. Each run rewrites `GamePlayer.log` beside the executable: the capture devices found, every mode the card offers, the chosen device and mode, the colour range and matrix read from that mode, then frame counts and the arrival-to-present time (once a second for ten seconds, then once a minute). For sound: every audio capture endpoint, the chosen one, both endpoints' formats, periods and buffers, the buffer target, then (same rhythm) the fill, drift correction rate, underruns and overruns. Video Area: every state change (`Video Area: Loading -> Playing`), and once a second a `Signal:` line with every value no-signal detection could use (frames, stream ticks, type changes, discontinuities, luma of the latest frame, sound frames, silent frames, peak). Retries log their details only when the device list changed. Each audio key logs the new volume, mute, Audio Delay and buffer target.
 
 ## Module layout
@@ -31,7 +33,8 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `source.h`: the `Source` interface. Capture sits behind it so another implementation could replace Media Foundation.
   - `processor.h`: the `Processor` interface (one frame in, zero or more timed frames out) and the pass-through Processor.
   - `unique_frames.h`: the Processor in use. Drops Repeated Frames (exact compare; near-duplicate tolerance `kNearDuplicateTolerance`, the one number to tune, default 0 = exact only), the Auto / 30 / 60 override, Signal Rate and Game Rate, the last three Unique Frames, the FPS counter text.
-  - `capture_choice.h`: which capture device and which mode to use, with no configuration.
+  - `capture_choice.h`: which capture device and which mode to use, with no configuration, and the resolutions offered in the menu (uncompressed, at most 60 fps, no MJPEG twins).
+  - `viewer_settings.h`: every menu override in one structure with its defaults (ticket 09 saves it). `menu_model.h`: the menu's labels, check marks, Hotkeys and About texts.
   - `colour.h`: the YUV to RGB numbers for a frame's colour range and matrix.
   - `picture_fit.h`: where the 16:9 picture goes inside the Video Area.
   - `window_shape.h`: the window rectangle while an edge or corner is dragged, so the windowed Video Area stays exactly 16:9 (WM_SIZING).
@@ -50,7 +53,8 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `feed_keeper.*`: runs Source, Processor, Presenter and sound; follows `video_area_state.h`, restarts picture and sound together, reacts to device notifications and resume from sleep.
   - `sound.*`: the Feed sound. WASAPI shared mode, event-driven, capture from the card's endpoint and render to the Windows default output, following changes to that default. Volume, mute and Audio Delay are plain get / set values here.
   - `feedback.*`: shows the confirmation line through `Presenter::ShowText(TextPlace::Top, ..., 1500)`. The Presenter presents by itself when a text appears or ends, so it shows and clears on time even with a static, black or absent picture.
-  - `fullscreen.*`: borderless fullscreen (F11, Esc), the hiding cursor, monitor changes. Window chrome is hidden and restored in one place, `ShowChrome`.
+  - `fullscreen.*`: borderless fullscreen (F11, Esc), the hiding cursor, monitor changes. Window chrome (menu bar and topmost flag included) is hidden and restored in one place, `ShowChrome`.
+  - `menu_bar.*`: the native menu bar, refreshed from `menu_model.h` each time a menu opens.
   - `keep_awake.*`: no system or display sleep while a Feed plays (the Playing state only). Holds a power request (`powercfg /requests`, elevated, lists "GamePlayer: a Feed is playing") and the window thread's execution state, and resets the idle timers each second. Logs take, release (with reason), a minute-by-minute "still held", and every display on / off / dimmed.
   - `single_instance.*`: a second launch brings the running window forward and exits.
   - `log.*`: the debug log.

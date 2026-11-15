@@ -26,6 +26,12 @@ public:
     void Toggle();
     void Leave();
 
+    // The menu bar: shown windowed, removed in fullscreen (ShowChrome).
+    void SetMenuBar(HMENU menu) { menu_ = menu; }
+    // Always on top, windowed only: the topmost flag is dropped in
+    // fullscreen (Lossless Scaling draws its own window over the Viewer).
+    void SetAlwaysOnTop(bool on);
+
 private:
     void Enter();
     void DisplayChanged();
@@ -33,8 +39,11 @@ private:
     void Cover(const ScreenRect& bounds);
     void SetCursorShown(bool shown);
     void LogClientSize(const char* what);
+    void ApplyTopmost(bool topmost);
 
     HWND window_;
+    HMENU menu_ = nullptr;
+    bool alwaysOnTop_ = false;
     bool on_ = false;
     WINDOWPLACEMENT saved_ = {sizeof saved_};  // position, size and maximised state to return to
     LONG_PTR savedStyle_ = 0;

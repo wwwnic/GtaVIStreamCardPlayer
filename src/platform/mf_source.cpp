@@ -50,6 +50,7 @@ CaptureMode ModeOf(IMFMediaType* type) {
     type->GetGUID(MF_MT_SUBTYPE, &subtype);
     if (subtype == MFVideoFormat_YUY2) mode.format = PixelFormat::YUY2;
     if (subtype == MFVideoFormat_NV12) mode.format = PixelFormat::NV12;
+    mode.motionJpeg = subtype == MFVideoFormat_MJPG;
     MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &mode.width, &mode.height);
     MFGetAttributeRatio(type, MF_MT_FRAME_RATE, &mode.fpsNumerator, &mode.fpsDenominator);
     return mode;
@@ -84,6 +85,27 @@ std::string Describe(IMFMediaType* type) {
              MFGetAttributeUINT32(type, MF_MT_VIDEO_NOMINAL_RANGE, 0), MFGetAttributeUINT32(type, MF_MT_YUV_MATRIX, 0),
              MFGetAttributeUINT32(type, MF_MT_INTERLACE_MODE, 0));
     return text;
+}
+
+std::vector<std::wstring> NamesOf(IMFActivate** devices, UINT32 count) {
+    std::vector<std::wstring> names(count);
+    for (UINT32 i = 0; i < count; i++) {
+        WCHAR* name = nullptr;
+        UINT32 length = 0;
+        if (SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &length)) && name) {
+            names[i] = name;
+        }
+        CoTaskMemFree(name);
+    }
+    return names;
+}
+
+HRESULT EnumerateVideoCaptureDevices(IMFActivate*** devices, UINT32* count) {
+    ComPtr<IMFAttributes> query;
+    HRESULT hr = MFCreateAttributes(&query, 1);
+    if (SUCCEEDED(hr)) hr = query->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+    if (SUCCEEDED(hr)) hr = MFEnumDeviceSources(query.Get(), devices, count);
+    return hr;
 }
 
 const char* RangeName(ColourRange range) {
@@ -311,6 +333,7 @@ public:
     }
 
     void Stop() override {
+        currentMode_.reset();
         if (callback_) {
             callback_->End();
             const uint64_t frames = callback_->FramesDelivered();
@@ -324,6 +347,13 @@ public:
     }
 
     std::wstring DeviceName() const override { return deviceName_; }
+
+    void Choose(const Choice& choice) override {
+        choice_ = choice;
+        choiceChanged_ = true;
+    }
+    std::vector<CaptureMode> Modes() const override { return modes_; }
+    std::optional<CaptureMode> CurrentMode() const override { return currentMode_; }
 
     Probe TakeProbe() override { return callback_ ? callback_->TakeProbe() : Probe{}; }
 
@@ -341,33 +371,29 @@ private:
 
     std::optional<SourceEvent> OpenDevice() {
         deviceName_.clear();
-        ComPtr<IMFAttributes> query;
-        MFCreateAttributes(&query, 1);
-        query->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+        modes_.clear();
         IMFActivate** devices = nullptr;
         UINT32 count = 0;
-        HRESULT hr = MFEnumDeviceSources(query.Get(), &devices, &count);
+        HRESULT hr = EnumerateVideoCaptureDevices(&devices, &count);
         if (FAILED(hr)) {
             Log("Source: MFEnumDeviceSources failed hr=0x%08lX", static_cast<unsigned long>(hr));
             return Failure(SourceStage::Enumerate, hr);
         }
-        std::vector<std::wstring> names(count);
-        for (UINT32 i = 0; i < count; i++) {
-            WCHAR* name = nullptr;
-            UINT32 length = 0;
-            if (SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &length)) && name) {
-                names[i] = name;
-            }
-            CoTaskMemFree(name);
-        }
-        detail_ = !lastNames_ || names != *lastNames_;
+        const std::vector<std::wstring> names = NamesOf(devices, count);
+        // A new choice logs its details like a changed device list.
+        detail_ = !lastNames_ || names != *lastNames_ || choiceChanged_;
+        choiceChanged_ = false;
         lastNames_ = names;
         if (detail_) Log("Source: %u capture devices", count);
         for (UINT32 i = 0; i < count; i++) Detail("Source: capture device [%u] \"%s\"", i, ToUtf8(names[i]).c_str());
         std::optional<SourceEvent> failure;
-        const std::optional<size_t> chosen = ChooseCaptureDevice(names);
+        const std::optional<size_t> chosen = ChooseCaptureDevice(names, choice_.device);
+        if (chosen && !choice_.device.empty() && names[*chosen] != choice_.device) {
+            Detail("Source: chosen Capture Card \"%s\" is not present; automatic choice", ToUtf8(choice_.device).c_str());
+        }
         if (chosen) {
-            Detail("Source: chosen device [%zu] \"%s\"", *chosen, ToUtf8(names[*chosen]).c_str());
+            Detail("Source: chosen device [%zu] \"%s\"%s", *chosen, ToUtf8(names[*chosen]).c_str(),
+                   choice_.device.empty() ? " (automatic)" : "");
             deviceName_ = names[*chosen];
             hr = devices[*chosen]->ActivateObject(IID_PPV_ARGS(&device_));
             if (FAILED(hr)) {
@@ -408,7 +434,15 @@ private:
             modes.push_back(ModeOf(type.Get()));
             Detail("Source: mode #%lu %s", static_cast<unsigned long>(i), Describe(type.Get()).c_str());
         }
-        const std::optional<size_t> chosen = ChooseCaptureMode(modes);
+        modes_ = modes;
+        const std::optional<size_t> chosen = ChooseCaptureMode(modes, choice_.resolution);
+        if (chosen && choice_.resolution) {
+            const CaptureMode& picked = modes[*chosen];
+            if (picked.width != choice_.resolution->width || picked.height != choice_.resolution->height) {
+                Log("Source: chosen resolution %ux%u is not offered by this card; default mode", choice_.resolution->width,
+                    choice_.resolution->height);
+            }
+        }
         if (!chosen) {
             Log("Source: the device offers no uncompressed 1920x1080 60 fps mode (YUY2 or NV12) among %zu modes",
                 modes.size());
@@ -442,6 +476,7 @@ private:
 
         // Opened goes out before the first read, whose failure may be reported
         // from the reader's thread at once.
+        currentMode_ = mode;
         events({SourceEvent::Kind::Opened, SourceStage::FirstRead, 0});
         callback_->Begin(reader, std::move(sink), events, *mode.format, mode.width, mode.height, colour);
         hr = reader->ReadSample(kVideoStream, 0, nullptr, nullptr, nullptr, nullptr);
@@ -457,6 +492,10 @@ private:
     bool detail_ = true;
     std::optional<std::vector<std::wstring>> lastNames_;
     std::wstring deviceName_;
+    Choice choice_;
+    bool choiceChanged_ = false;
+    std::vector<CaptureMode> modes_;
+    std::optional<CaptureMode> currentMode_;
     ComPtr<IMFMediaSource> device_;
     ComPtr<ReaderCallback> callback_;
 };
@@ -465,6 +504,16 @@ private:
 
 std::unique_ptr<Source> MakeMediaFoundationSource() {
     return std::make_unique<MediaFoundationSource>();
+}
+
+std::vector<std::wstring> ListCaptureDevices() {
+    IMFActivate** devices = nullptr;
+    UINT32 count = 0;
+    if (FAILED(EnumerateVideoCaptureDevices(&devices, &count))) return {};
+    std::vector<std::wstring> names = NamesOf(devices, count);
+    for (UINT32 i = 0; i < count; i++) devices[i]->Release();
+    CoTaskMemFree(devices);
+    return names;
 }
 
 }  // namespace gp

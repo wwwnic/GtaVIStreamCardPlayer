@@ -190,6 +190,9 @@ public:
         if (pictureVisible_.exchange(visible) != visible) Repaint();
     }
 
+    // No repaint: an extra present would count as a game frame for Lossless Scaling.
+    void SetVsync(bool on) { vsync_ = on; }
+
 private:
     void Repaint() {
         repaint_ = true;
@@ -553,9 +556,11 @@ private:
             texts = texts_;
         }
         overlay_.Draw(swapChain_.Get(), texts, backWidth_, backHeight_);
-        // Interval 0 = do not wait for the monitor; with tearing allowed the
-        // frame goes out immediately and the FreeSync display follows.
-        const HRESULT hr = swapChain_->Present(0, tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
+        // V-sync off (default): interval 0 = do not wait for the monitor; with
+        // tearing allowed the frame goes out immediately and the FreeSync
+        // display follows. On: wait for the refresh, no tearing flag.
+        const bool vsync = vsync_.load();
+        const HRESULT hr = swapChain_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
             Log("Presenter: device lost hr=0x%08lX (reason 0x%08lX); recreating", static_cast<unsigned long>(hr),
                 static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
@@ -574,6 +579,7 @@ private:
     std::atomic<bool> resized_{false};
     std::atomic<bool> repaint_{false};
     std::atomic<bool> pictureVisible_{true};
+    std::atomic<bool> vsync_{false};
     LatestSlot<TimedFrame> slot_;
 
     std::mutex textMutex_;
@@ -627,6 +633,7 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
     impl_->ShowTextWithNextFrame(place, std::move(text));
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
+void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 Presenter::Stats Presenter::TakeStats() { return impl_->TakeStats(); }
 
 }  // namespace gp

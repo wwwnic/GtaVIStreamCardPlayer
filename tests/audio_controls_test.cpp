@@ -84,6 +84,18 @@ TEST_CASE("the Audio Delay stays between 0 and 500 ms and the line says when it 
     CHECK(gp::ClampAudioDelay(150) == 150);
 }
 
+TEST_CASE("the menu's reset puts the Audio Delay back to 0 and leaves the sound level alone") {
+    AudioSettings settings;
+    settings.audioDelayMs = 250;
+    settings.volumePercent = 40;
+    settings.muted = true;
+    const gp::AudioKeyResult result = PressAudioKey(settings, AudioKey::DelayReset);
+    CHECK(result.settings.audioDelayMs == 0);
+    CHECK(result.settings.volumePercent == 40);
+    CHECK(result.settings.muted);
+    CHECK(result.feedback == "Audio delay 0 ms (reset)");
+}
+
 TEST_CASE("changing the volume while muted unmutes, from the kept level") {
     AudioSettings settings;
     settings.volumePercent = 60;
