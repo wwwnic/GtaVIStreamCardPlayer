@@ -356,9 +356,13 @@ GamePlayer V-sync: keep off.
 
 Menu: View > V-sync.
 
-That menu is coming soon.
+The menu bar is at the top.
+
+It hides in fullscreen.
 
 Off is already the default.
+
+GamePlayer remembers your choice.
 
 While Lossless Scaling runs:
 
@@ -395,7 +399,7 @@ Check Device > Frame rate.
 
 It should be Auto.
 
-That menu is coming soon.
+Leave fullscreen to see it.
 
 Still 60?
 

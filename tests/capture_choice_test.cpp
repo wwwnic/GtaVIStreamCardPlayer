@@ -249,3 +249,26 @@ TEST_CASE("a chosen Capture Card is used when present, otherwise the automatic c
     CHECK(ChooseCaptureDevice(names, L"Unplugged Card") == 1);
     CHECK(ChooseCaptureDevice(names, L"") == 1);
 }
+
+TEST_CASE("a remembered Capture Card is found by its identifier first, then by its name") {
+    const std::vector<std::wstring> names = {L"USB Video", L"Live Gamer ULTRA S GC553Pro", L"USB Video"};
+    const std::vector<std::wstring> ids = {L"\\\\?\\usb#a", L"\\\\?\\usb#gc553", L"\\\\?\\usb#b"};
+    SUBCASE("the identifier tells two cards of the same name apart") {
+        CHECK(ChooseCaptureDevice(names, ids, L"USB Video", L"\\\\?\\usb#b") == 2);
+    }
+    SUBCASE("the identifier wins even if the name changed") {
+        CHECK(ChooseCaptureDevice(names, ids, L"Old name", L"\\\\?\\usb#a") == 0);
+    }
+    SUBCASE("a new identifier (another USB port): the name") {
+        CHECK(ChooseCaptureDevice(names, ids, L"Live Gamer ULTRA S GC553Pro", L"\\\\?\\usb#moved") == 1);
+    }
+    SUBCASE("no identifier known yet: the name") {
+        CHECK(ChooseCaptureDevice(names, ids, L"USB Video", L"") == 0);
+    }
+    SUBCASE("neither present: the automatic choice") {
+        CHECK(ChooseCaptureDevice(names, ids, L"Unplugged Card", L"\\\\?\\usb#gone") == 1);
+    }
+    SUBCASE("nothing remembered: the automatic choice") {
+        CHECK(ChooseCaptureDevice(names, ids, L"", L"") == 1);
+    }
+}

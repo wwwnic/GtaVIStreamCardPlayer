@@ -3,11 +3,13 @@
 //
 // Arguments: --run N   close by itself after N seconds (unattended smoke runs).
 // --tolerance X   near-duplicate tolerance for Repeated Frames (default 0, exact).
-// --rate auto|30|60   the Game Rate override (default auto).
+// --rate auto|30|60   the Game Rate override for this run (not remembered).
+// --settings PATH   use this settings file instead of %APPDATA%\GamePlayer\settings.ini.
 // Keys: F11 toggles borderless fullscreen, Esc leaves it. Up / Down volume,
 // M mute, J / K Audio Delay (sound earlier / later). F the FPS counter.
 // The menu bar (windowed only) overrides the automatic choices; all its
-// settings live in App::settings.
+// settings live in App::settings. They and the windowed position are
+// remembered between runs (ticket 09, core/settings_file.h).
 #include <windows.h>
 
 #include <objbase.h>
@@ -16,11 +18,13 @@
 #include <algorithm>
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "core/audio_controls.h"
 #include "core/menu_model.h"
+#include "core/settings_file.h"
 #include "core/viewer_settings.h"
 #include "core/window_shape.h"
 #include "platform/feed_keeper.h"
@@ -30,6 +34,7 @@
 #include "platform/log.h"
 #include "platform/menu_bar.h"
 #include "platform/presenter.h"
+#include "platform/settings_store.h"
 #include "platform/single_instance.h"
 
 namespace {
@@ -43,11 +48,18 @@ const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
-    App(HWND window, gp::MenuBar& menuBar, double tolerance)
-        : window(window), menu(menuBar), feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
+    App(HWND window, gp::MenuBar& menuBar, double tolerance, std::wstring settingsPath, std::string settingsOnDisk)
+        : window(window), menu(menuBar), settingsPath(std::move(settingsPath)), saveTiming(std::move(settingsOnDisk)),
+          feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
     HWND window;
     gp::MenuBar& menu;
-    gp::ViewerSettings settings;  // every menu override (ticket 09 saves and loads it)
+    gp::ViewerSettings settings;    // every menu override in effect now
+    // What is saved: `settings` as the user chose them. Differs only for this
+    // run's fallbacks (a resolution that did not start) and --rate.
+    gp::ViewerSettings remembered;
+    std::wstring settingsPath;      // empty: nothing is saved
+    gp::SettingsSaveTiming saveTiming;
+    bool saveFailureLogged = false;
     gp::Presenter presenter;
     gp::Sound sound;  // started and stopped by the FeedKeeper; its settings persist
     gp::Feedback feedback;
@@ -79,6 +91,7 @@ void PressAudio(App& app, gp::AudioKey audioKey, const char* from) {
     if (pressed.settings.volumePercent != now.volumePercent) app.sound.SetVolume(pressed.settings.volumePercent);
     if (pressed.settings.audioDelayMs != now.audioDelayMs) app.sound.SetAudioDelayMs(pressed.settings.audioDelayMs);
     app.settings.audio = pressed.settings;
+    app.remembered.audio = pressed.settings;
     gp::Log("%s: %s", from, pressed.feedback.c_str());
     app.feedback.Show(pressed.feedback);
 }
@@ -100,7 +113,7 @@ bool HandleAudioKey(App& app, WPARAM key, LPARAM flags) {
     return true;
 }
 
-// Every setting at once: at launch (ticket 09 will load them first).
+// Every setting at once: at launch, after loading the remembered ones.
 void ApplyAllSettings(App& app) {
     const gp::ViewerSettings& s = app.settings;
     if (app.sound.Volume() != s.audio.volumePercent) app.sound.SetVolume(s.audio.volumePercent);
@@ -109,7 +122,7 @@ void ApplyAllSettings(App& app) {
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
     app.presenter.SetVsync(s.vsync);
     if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
-    if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.resolution);
+    if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
     gp::Log("Menu: V-sync %s", s.vsync ? "on" : "off");
 }
 
@@ -126,12 +139,24 @@ void ShowAbout(App& app) {
 // WM_COMMAND from the menu bar. Each change applies at once.
 void HandleMenuCommand(App& app, UINT id) {
     gp::ViewerSettings& s = app.settings;
+    gp::ViewerSettings& kept = app.remembered;  // each choice is remembered as made
     if (const auto card = app.menu.CaptureCardFor(id)) {
         gp::Log("Menu: Capture Card \"%s\"", gp::ToUtf8(*card).c_str());
-        if (*card == app.feed.DeviceInUse() && app.feed.CurrentMode()) return;  // already showing it
+        if (*card == app.feed.DeviceInUse() && app.feed.CurrentMode()) {  // already showing it
+            if (kept.captureCard != *card) {  // the automatic choice, now chosen
+                s.captureCard = kept.captureCard = *card;
+                s.captureCardId = kept.captureCardId = app.feed.DeviceIdInUse();
+                kept.resolution = s.resolution;
+            }
+            return;
+        }
         s.captureCard = *card;
+        s.captureCardId.clear();  // learnt once it opens (LearnCaptureCardId)
         s.resolution.reset();  // the Resolution list belongs to a card
-        app.feed.SetChoice(s.captureCard, s.resolution);
+        kept.captureCard = s.captureCard;
+        kept.captureCardId = s.captureCardId;
+        kept.resolution = s.resolution;
+        app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
         return;
     }
     if (const auto resolution = app.menu.ResolutionFor(id)) {
@@ -140,9 +165,10 @@ void HandleMenuCommand(App& app, UINT id) {
         } else {
             gp::Log("Menu: Resolution default (1080p)");
         }
+        kept.resolution = *resolution;
         if (*resolution == s.resolution) return;
         s.resolution = *resolution;
-        app.feed.SetChoice(s.captureCard, s.resolution);
+        app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
         return;
     }
     switch (id) {
@@ -152,6 +178,7 @@ void HandleMenuCommand(App& app, UINT id) {
         s.frameRate = id == gp::kMenuRateAuto ? gp::GameRateOverride::Auto
                       : id == gp::kMenuRate30 ? gp::GameRateOverride::Fps30
                                               : gp::GameRateOverride::Fps60;
+        kept.frameRate = s.frameRate;
         app.feed.SetGameRateOverride(s.frameRate);  // logs "Frames: override ..."
         break;
     case gp::kMenuVolumeUp: PressAudio(app, gp::AudioKey::VolumeUp, "Menu"); break;
@@ -166,12 +193,14 @@ void HandleMenuCommand(App& app, UINT id) {
         break;
     case gp::kMenuAlwaysOnTop:
         s.alwaysOnTop = !s.alwaysOnTop;
+        kept.alwaysOnTop = s.alwaysOnTop;
         app.fullscreen.SetAlwaysOnTop(s.alwaysOnTop);  // logs
         gp::Log("Menu: always on top %s, window topmost %s", s.alwaysOnTop ? "on" : "off",
                 (GetWindowLongPtrW(app.window, GWL_EXSTYLE) & WS_EX_TOPMOST) ? "yes" : "no");
         break;
     case gp::kMenuVsync:
         s.vsync = !s.vsync;
+        kept.vsync = s.vsync;
         app.presenter.SetVsync(s.vsync);
         gp::Log("Menu: V-sync %s (%s)", s.vsync ? "on" : "off",
                 s.vsync ? "presents wait for the refresh, sync interval 1" : "present on arrival, tearing allowed");
@@ -248,6 +277,150 @@ void SetDefaultSize(HWND window) {
             frameH, MinVideoAreaWidth(window));
 }
 
+// ---- Remembered settings (ticket 09) ----
+
+gp::WindowRect FromRect(const RECT& r) { return {r.left, r.top, r.right, r.bottom}; }
+
+// GetWindowPlacement gives workspace coordinates: screen coordinates shifted
+// by any taskbar at the top or left of the work area.
+gp::WindowRect ScreenFromWorkspace(const RECT& r) {
+    MONITORINFO monitor = {sizeof monitor};
+    GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTOPRIMARY), &monitor);
+    const LONG dx = monitor.rcWork.left - monitor.rcMonitor.left, dy = monitor.rcWork.top - monitor.rcMonitor.top;
+    return {r.left + dx, r.top + dy, r.right + dx, r.bottom + dy};
+}
+
+// The windowed position to remember: in fullscreen, the one it returns to.
+std::optional<gp::SavedWindow> WindowNow(App& app) {
+    if (const WINDOWPLACEMENT* saved = app.fullscreen.WindowedPlacement()) {
+        return gp::SavedWindow{ScreenFromWorkspace(saved->rcNormalPosition), saved->showCmd == SW_SHOWMAXIMIZED};
+    }
+    WINDOWPLACEMENT placement = {sizeof placement};
+    if (!GetWindowPlacement(app.window, &placement)) return std::nullopt;
+    const bool minimised = IsIconic(app.window) != FALSE;
+    const bool maximised = IsZoomed(app.window) || (minimised && (placement.flags & WPF_RESTORETOMAXIMIZED));
+    if (!minimised && !maximised) {  // where it is now, snapped or not
+        RECT now = {};
+        GetWindowRect(app.window, &now);
+        return gp::SavedWindow{FromRect(now), false};
+    }
+    return gp::SavedWindow{ScreenFromWorkspace(placement.rcNormalPosition), maximised};
+}
+
+std::string SettingsTextNow(App& app) {
+    gp::RememberedSettings now;
+    now.viewer = app.remembered;
+    now.window = WindowNow(app);
+    return gp::SettingsToText(now);
+}
+
+// A chosen Capture Card found by name gets its identifier, one found by
+// identifier its current name. The automatic stand-in for an unplugged
+// chosen card changes nothing.
+void LearnCaptureCardId(App& app) {
+    gp::ViewerSettings& s = app.settings;
+    if (s.captureCard.empty() || !app.feed.CurrentMode()) return;
+    const std::wstring name = app.feed.DeviceInUse(), id = app.feed.DeviceIdInUse();
+    const bool isChosen = name == s.captureCard || (!s.captureCardId.empty() && id == s.captureCardId);
+    if (!isChosen || (name == s.captureCard && id == s.captureCardId)) return;
+    gp::Log("Settings: Capture Card \"%s\" has identifier %s", gp::ToUtf8(name).c_str(), gp::ToUtf8(id).c_str());
+    s.captureCard = app.remembered.captureCard = name;
+    s.captureCardId = app.remembered.captureCardId = id;
+}
+
+void WriteSettings(App& app, const std::string& text, const char* why) {
+    if (gp::WriteSettingsFile(app.settingsPath, text)) {
+        app.saveTiming.Written(text);
+        app.saveFailureLogged = false;
+        gp::Log("Settings: saved (%s)", why);
+    } else if (!app.saveFailureLogged) {
+        app.saveFailureLogged = true;  // retried each second, logged once
+        gp::Log("Settings: could not save to %s (error %lu)", gp::ToUtf8(app.settingsPath).c_str(), GetLastError());
+    }
+}
+
+// Once a second: written shortly after a change has settled.
+void SettingsSecond(App& app) {
+    if (app.settingsPath.empty()) return;
+    LearnCaptureCardId(app);
+    const std::string text = SettingsTextNow(app);
+    if (app.saveTiming.Second(text)) WriteSettings(app, text, "changed");
+}
+
+void SaveSettingsNow(App& app, const char* why) {
+    if (app.settingsPath.empty()) return;
+    LearnCaptureCardId(app);
+    const std::string text = SettingsTextNow(app);
+    if (app.saveTiming.Differs(text)) WriteSettings(app, text, why);
+}
+
+void LogSettings(const char* what, const gp::RememberedSettings& r) {
+    const gp::ViewerSettings& v = r.viewer;
+    gp::Log("Settings: %s: volume %d, muted %s, Audio Delay %d ms, Capture Card %s%s%s, resolution %s, frame rate %s, "
+            "V-sync %s, always on top %s",
+            what, v.audio.volumePercent, v.audio.muted ? "yes" : "no", v.audio.audioDelayMs,
+            v.captureCard.empty() ? "automatic" : ("\"" + gp::ToUtf8(v.captureCard) + "\"").c_str(),
+            v.captureCardId.empty() ? "" : " id ", gp::ToUtf8(v.captureCardId).c_str(),
+            v.resolution ? (std::to_string(v.resolution->width) + "x" + std::to_string(v.resolution->height)).c_str()
+                         : "default",
+            gp::NameOf(v.frameRate), v.vsync ? "on" : "off", v.alwaysOnTop ? "on" : "off");
+    if (r.window) {
+        const gp::WindowRect& w = r.window->normal;
+        gp::Log("Settings: %s: window %d,%d %dx%d%s", what, w.left, w.top, w.right - w.left, w.bottom - w.top,
+                r.window->maximised ? ", maximised" : "");
+    } else {
+        gp::Log("Settings: %s: window default", what);
+    }
+}
+
+BOOL CALLBACK AddMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM list) {
+    MONITORINFO info = {sizeof info};
+    if (GetMonitorInfoW(monitor, &info)) reinterpret_cast<std::vector<gp::WindowRect>*>(list)->push_back(FromRect(info.rcMonitor));
+    return TRUE;
+}
+
+// Puts the window where it was, if that is still fully on a connected
+// monitor, with a 16:9 Video Area. Otherwise it keeps the default size,
+// centred on the primary monitor. Before the window is shown.
+void RestoreWindow(HWND window, const gp::SavedWindow& saved) {
+    std::vector<gp::WindowRect> monitors;
+    EnumDisplayMonitors(nullptr, nullptr, AddMonitor, reinterpret_cast<LPARAM>(&monitors));
+    const int slack = MulDiv(10, static_cast<int>(GetDpiForWindow(window)), 96);  // the invisible resize border
+    SIZE frame = FrameSize(window);
+    const std::optional<gp::WindowRect> rect =
+        gp::RestoredWindowRect(saved.normal, monitors, frame.cx, frame.cy, MinVideoAreaWidth(window), slack);
+    if (!rect) {
+        RECT now = {};
+        GetWindowRect(window, &now);
+        MONITORINFO primary = {sizeof primary};
+        GetMonitorInfoW(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY), &primary);
+        const RECT& work = primary.rcWork;
+        const LONG w = now.right - now.left, h = now.bottom - now.top;
+        SetWindowPos(window, nullptr, work.left + (work.right - work.left - w) / 2,
+                     work.top + (work.bottom - work.top - h) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        gp::Log("Window: remembered position %d,%d is not fully on a connected monitor (%zu); default size on the "
+                "primary monitor",
+                saved.normal.left, saved.normal.top, monitors.size());
+        return;
+    }
+    SetWindowPos(window, nullptr, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+    // On a monitor with another scale the frame has changed: shape again.
+    frame = FrameSize(window);
+    RECT placed = {};
+    GetWindowRect(window, &placed);
+    const gp::WindowRect shaped =
+        gp::KeepVideoArea16x9(FromRect(placed), gp::SizingEdge::Right, frame.cx, frame.cy, MinVideoAreaWidth(window));
+    if (!(shaped == FromRect(placed))) {
+        SetWindowPos(window, nullptr, shaped.left, shaped.top, shaped.right - shaped.left, shaped.bottom - shaped.top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    RECT client = {};
+    GetClientRect(window, &client);
+    gp::Log("Window: remembered position %d,%d, Video Area %ldx%ld%s", shaped.left, shaped.top, client.right,
+            client.bottom, saved.maximised ? ", maximised" : "");
+}
+
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     LRESULT handled = 0;
@@ -306,8 +479,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         if (wParam == kStatsTimer && app) {
             LogStats(*app);
             app->keepAwake.Second(app->feed.TakePlayingSecond());  // not while a state message shows
+            SettingsSecond(*app);
         }
         if (wParam == kRunTimer) PostMessageW(window, WM_CLOSE, 0, 0);
+        return 0;
+    case WM_ENDSESSION:
+        // Sign-out or shutdown may end the process without WM_CLOSE.
+        if (app && wParam) SaveSettingsNow(*app, "session ending");
         return 0;
     case WM_CLOSE:
         // Leave the message loop first; the window is destroyed after the
@@ -321,10 +499,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 struct Arguments {
     int runSeconds = 0;
     double tolerance = gp::kNearDuplicateTolerance;
-    gp::GameRateOverride rate = gp::GameRateOverride::Auto;
+    std::optional<gp::GameRateOverride> rate;  // empty: the remembered one
+    std::wstring settingsPath;                  // empty: the default place
 };
 
-// --run N, --tolerance X (e.g. 0.005), --rate auto|30|60.
+// --run N, --tolerance X (e.g. 0.005), --rate auto|30|60, --settings PATH.
 Arguments ArgumentsFromCommandLine() {
     Arguments parsed;
     int count = 0;
@@ -333,7 +512,9 @@ Arguments ArgumentsFromCommandLine() {
     for (int i = 1; i + 1 < count; i++) {
         if (wcscmp(arguments[i], L"--run") == 0) parsed.runSeconds = std::max(_wtoi(arguments[i + 1]), 0);
         if (wcscmp(arguments[i], L"--tolerance") == 0) parsed.tolerance = std::max(_wtof(arguments[i + 1]), 0.0);
-        if (wcscmp(arguments[i], L"--rate") == 0) gp::ParseGameRateOverride(arguments[i + 1], parsed.rate);
+        gp::GameRateOverride rate;
+        if (wcscmp(arguments[i], L"--rate") == 0 && gp::ParseGameRateOverride(arguments[i + 1], rate)) parsed.rate = rate;
+        if (wcscmp(arguments[i], L"--settings") == 0) parsed.settingsPath = arguments[i + 1];
     }
     LocalFree(arguments);
     return parsed;
@@ -381,19 +562,37 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(comResult)) gp::Log("CoInitializeEx failed hr=0x%08lX", static_cast<unsigned long>(comResult));
 
+    // Remembered settings: whatever cannot be read is simply the default.
+    const std::wstring settingsPath =
+        arguments.settingsPath.empty() ? gp::DefaultSettingsPath() : arguments.settingsPath;
+    const std::string settingsOnDisk = gp::ReadSettingsFile(settingsPath);
+    const gp::RememberedSettings loaded = gp::SettingsFromText(settingsOnDisk);
+    if (settingsPath.empty()) {
+        gp::Log("Settings: no app-data folder; defaults, nothing will be saved");
+    } else {
+        gp::Log("Settings: %s, %zu bytes read%s", gp::ToUtf8(settingsPath).c_str(), settingsOnDisk.size(),
+                settingsOnDisk.empty() ? " (none: defaults)" : "");
+    }
+    LogSettings("loaded", loaded);
+
     gp::MenuBar menuBar;  // outlives the window, which owns it while attached
     HWND window = CreateViewerWindow(instance, menuBar.Handle());
     if (!window) {
         gp::Log("Could not create the window (error %lu)", GetLastError());
         return 1;
     }
+    // Always windowed at launch, even if it was closed in fullscreen.
+    if (loaded.window) RestoreWindow(window, *loaded.window);
+    const bool openMaximised = loaded.window && loaded.window->maximised && showCommand != SW_SHOWMINIMIZED &&
+                               showCommand != SW_SHOWMINNOACTIVE && showCommand != SW_MINIMIZE;
 
     {
-        App app(window, menuBar, arguments.tolerance);
-        app.settings.frameRate = arguments.rate;
+        App app(window, menuBar, arguments.tolerance, settingsPath, settingsOnDisk);
+        app.settings = app.remembered = loaded.viewer;
+        if (arguments.rate) app.settings.frameRate = *arguments.rate;  // this run only
         app.fullscreen.SetMenuBar(menuBar.Handle());
         app.feed.OnResolutionFallback([&app](gp::Resolution failed) {
-            app.settings.resolution.reset();
+            app.settings.resolution.reset();  // this run only; the choice stays remembered
             app.feedback.Show(std::to_string(failed.width) + "x" + std::to_string(failed.height) +
                               " did not start: back to 1080p");
         });
@@ -404,7 +603,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         app.feed.Start();  // shows Loading, then the Feed or why not; recovers by itself
         app.keepAwake.Start(window);  // logs display on / off
 
-        ShowWindow(window, showCommand);
+        ShowWindow(window, openMaximised ? SW_SHOWMAXIMIZED : showCommand);
         SetTimer(window, kStatsTimer, 1000, nullptr);
         if (runSeconds) SetTimer(window, kRunTimer, static_cast<UINT>(runSeconds) * 1000, nullptr);
 
@@ -416,6 +615,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
         gp::Log("Closing");
         KillTimer(window, kStatsTimer);
+        SaveSettingsNow(app, "exit");  // before the window hides; in fullscreen, its windowed place
         app.keepAwake.Release("exit");
         ShowWindow(window, SW_HIDE);  // disappear at once; teardown follows
         app.feed.Stop();  // sound and capture, before the Presenter they feed

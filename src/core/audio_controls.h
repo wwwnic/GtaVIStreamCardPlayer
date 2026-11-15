@@ -14,6 +14,8 @@ struct AudioSettings {
     int volumePercent = 100;  // 0-100; kept while muted
     bool muted = false;
     int audioDelayMs = 0;  // 0-500; positive plays the sound later
+
+    bool operator==(const AudioSettings&) const = default;
 };
 
 // Volume to 0-100, Audio Delay to 0-500 ms (any value, for settings and menu).

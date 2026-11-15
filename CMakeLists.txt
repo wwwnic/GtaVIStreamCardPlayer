@@ -33,6 +33,7 @@ add_library(gameplayer_core STATIC
     src/core/feedback_line.cpp
     src/core/window_shape.cpp
     src/core/menu_model.cpp
+    src/core/settings_file.cpp
 )
 target_include_directories(gameplayer_core PUBLIC src)
 
@@ -50,9 +51,10 @@ add_executable(GamePlayer WIN32
     src/platform/text_overlay.cpp
     src/platform/feedback.cpp
     src/platform/menu_bar.cpp
+    src/platform/settings_store.cpp
 )
 target_link_libraries(GamePlayer PRIVATE gameplayer_core
-    d3d11 dxgi d3dcompiler mfplat mf mfreadwrite mfuuid ole32 user32 gdi32 shell32 avrt d2d1 dwrite)
+    d3d11 dxgi d3dcompiler mfplat mf mfreadwrite mfuuid ole32 user32 gdi32 shell32 avrt d2d1 dwrite uuid)
 
 enable_testing()
 add_executable(gameplayer_tests
@@ -79,6 +81,7 @@ add_executable(gameplayer_tests
     tests/feedback_line_test.cpp
     tests/window_shape_test.cpp
     tests/menu_model_test.cpp
+    tests/settings_file_test.cpp
 )
 target_include_directories(gameplayer_tests PRIVATE third_party/doctest)
 target_link_libraries(gameplayer_tests PRIVATE gameplayer_core)

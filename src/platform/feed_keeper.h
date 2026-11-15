@@ -50,14 +50,16 @@ public:
     // Auto / 30 / 60 (the menu's Frame rate). Takes effect at once.
     void SetGameRateOverride(GameRateOverride setting);
 
-    // The menu's Capture Card and Resolution (empty: automatic). Restarts
-    // picture and sound at once through Loading, like a launch.
-    void SetChoice(const std::wstring& device, std::optional<Resolution> resolution);
+    // The menu's Capture Card (identifier, else name) and Resolution (empty:
+    // automatic). Restarts picture and sound at once through Loading, like a
+    // launch.
+    void SetChoice(const std::wstring& device, const std::wstring& deviceId, std::optional<Resolution> resolution);
     // A chosen resolution that fails to start is dropped for the default
     // mode; this is told which one failed (to clear it from the settings).
     void OnResolutionFallback(std::function<void(Resolution)> told) { fellBack_ = std::move(told); }
     // What is in use, for the menu and About.
     std::wstring DeviceInUse() const { return source_->DeviceName(); }
+    std::wstring DeviceIdInUse() const { return source_->DeviceId(); }
     std::vector<CaptureMode> Modes() const { return source_->Modes(); }
     std::optional<CaptureMode> CurrentMode() const { return source_->CurrentMode(); }
     // Signal Rate and Game Rate now (for the Help or debug display).

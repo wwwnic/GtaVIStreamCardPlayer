@@ -36,6 +36,12 @@ std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNa
 // The device named `chosen` (the menu's Capture Card) when present; when it
 // is not, or `chosen` is empty, the automatic choice above.
 std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames, const std::wstring& chosen);
+// A remembered Capture Card (ticket 09): the device whose identifier
+// (symbolic link, `deviceIds` parallel to `deviceNames`) is `chosenId`, else
+// the one named `chosenName`, else the automatic choice.
+std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames,
+                                          std::span<const std::wstring> deviceIds, const std::wstring& chosenName,
+                                          const std::wstring& chosenId);
 
 // Index of the mode to capture in: uncompressed 1920x1080 at the 60 Hz
 // Signal Rate. YUY2 is preferred over NV12; within a format the rate closest
