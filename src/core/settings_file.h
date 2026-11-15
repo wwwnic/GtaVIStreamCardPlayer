@@ -4,7 +4,7 @@
 //
 // Reading never fails: a missing, empty, damaged or other-version text, and
 // any invalid value, gives the default for what is affected. Unknown keys are
-// ignored. Fullscreen and the FPS counter are never remembered.
+// ignored. Fullscreen is never remembered.
 #pragma once
 
 #include <optional>

@@ -20,6 +20,7 @@ struct ViewerSettings {
     AudioSettings audio;                   // volume, mute, Audio Delay
     bool alwaysOnTop = false;              // windowed only
     bool vsync = false;                    // off: present on arrival, tearing allowed
+    bool fpsCounter = false;               // the F key; drawn only into frames presented anyway
 
     bool operator==(const ViewerSettings&) const = default;
 };

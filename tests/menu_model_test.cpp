@@ -123,6 +123,17 @@ TEST_CASE("the View menu checks follow fullscreen, always on top and V-sync") {
     CHECK(view.vsync.checked);
 }
 
+TEST_CASE("View > FPS counter shows the F key and is checked while the counter shows") {
+    gp::ViewerSettings settings;
+    gp::ViewMenu view = gp::ViewItems(settings, false);
+    CHECK(view.fpsCounter.label == L"FPS counter\tF");
+    CHECK_FALSE(view.fpsCounter.checked);
+    CHECK(view.fpsCounter.enabled);
+    settings.fpsCounter = true;
+    view = gp::ViewItems(settings, false);
+    CHECK(view.fpsCounter.checked);
+}
+
 TEST_CASE("Hotkeys lists all eight keys") {
     const std::wstring text = gp::HotkeysText();
     for (const wchar_t* key : {L"F11", L"Esc", L"M", L"Up", L"Down", L"J", L"K", L"F\t"}) {

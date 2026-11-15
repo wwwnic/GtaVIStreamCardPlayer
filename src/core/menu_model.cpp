@@ -67,6 +67,7 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn) {
     menu.fullscreen = {L"Fullscreen\tF11", fullscreenOn, true};
     menu.alwaysOnTop = {L"Always on top", settings.alwaysOnTop, true};
     menu.vsync = {L"V-sync", settings.vsync, true};
+    menu.fpsCounter = {L"FPS counter\tF", settings.fpsCounter, true};
     return menu;
 }
 

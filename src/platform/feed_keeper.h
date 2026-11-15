@@ -64,9 +64,10 @@ public:
     std::optional<CaptureMode> CurrentMode() const { return source_->CurrentMode(); }
     // Signal Rate and Game Rate now (for the Help or debug display).
     FrameRates Rates();
-    // The F key: the FPS counter on or off. Off at every launch. It is only
-    // drawn into frames presented anyway, so it shows with the next one.
-    void ToggleFpsCounter();
+    // The FPS counter on or off (the F key, View > FPS counter; remembered).
+    // It is only drawn into frames presented anyway, so it shows with the
+    // next one and never causes a present of its own.
+    void SetFpsCounter(bool on);
 
 private:
     void Tick();
