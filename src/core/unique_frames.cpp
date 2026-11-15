@@ -60,21 +60,22 @@ bool ParseGameRateOverride(const std::wstring& word, GameRateOverride& setting) 
 }
 
 UniqueFrameProcessor::UniqueFrameProcessor(int64_t ticksPerSecond, double tolerance)
-    : ticksPerSecond_(ticksPerSecond > 0 ? ticksPerSecond : 1), tolerance_(tolerance > 0 ? tolerance : 0) {}
+    : ticksPerSecond_(ticksPerSecond > 0 ? ticksPerSecond : 1),
+      tolerance_(tolerance > kMaxTolerance ? kMaxTolerance : tolerance > 0 ? tolerance : 0) {}
 
 void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& out) {
-    double share = 1.0;  // the first frame, or one of another size: not close
-    // Exact only: stop at the first differing byte and measure closeness later,
-    // so a Unique Frame reaches the Presenter without a full scan.
-    const bool deferCloseness = tolerance_ <= 0;
+    double share = 1.0;  // only a Near repeat's share is counted here
+    // Only what decides Unique or Repeated is done before the frame is handed
+    // on: the compare stops at the first differing byte (exact only) or once
+    // the tolerance is passed. How close a Unique Frame was is measured later.
     const FrameMatch match =
-        reference_ ? CompareFrames(*captured, *reference_, tolerance_, &share, deferCloseness ? 0.0 : kCloseShare)
-                   : FrameMatch::Different;
+        reference_ ? CompareFrames(*captured, *reference_, tolerance_, &share, 0.0) : FrameMatch::Different;
     const bool unique = match == FrameMatch::Different;
-    if (unique && deferCloseness && reference_) {
+    // A Unique Frame differs by the tolerance or more: with a tolerance of
+    // kCloseShare or above it cannot be close, so there is nothing to measure.
+    if (unique && reference_ && tolerance_ < kCloseShare) {
         measureNew_ = captured;
         measureOld_ = reference_;
-        share = 1.0;
     }
     if (unique) {
         reference_ = captured;
@@ -82,11 +83,14 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
         recent_.insert(recent_.begin(), captured);
         if (recent_.size() > kRecentUnique) recent_.pop_back();
     }
-    sinceEmitted_++;
+    if (sinceEmitted_ < 2) sinceEmitted_++;  // only "two or more" matters: no wrap on a long still picture
 
     bool emit = false;
     switch (override_.load()) {
-    case GameRateOverride::Auto: emit = unique; break;
+    // A Unique Frame, or the next copy of one that override 30 held back just
+    // before the setting changed (it would otherwise never be shown on a
+    // picture that then stays still).
+    case GameRateOverride::Auto: emit = !referenceShown_; break;
     case GameRateOverride::Fps60: emit = true; break;
     case GameRateOverride::Fps30:
         // A Unique Frame that came too soon is shown by its next copy.
@@ -114,10 +118,6 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
             totals_.repeatedNear++;
             if (share > closeness_.nearShareMax) closeness_.nearShareMax = share;
         }
-        if (unique && share < kCloseShare) {
-            closeness_.closeUnique++;
-            if (share < closeness_.closeShareMin) closeness_.closeShareMin = share;
-        }
         if (emit) totals_.presented++; else totals_.dropped++;
     }
     if (emit) out.push_back({std::move(captured), arrival});
@@ -144,6 +144,10 @@ void UniqueFrameProcessor::Reset() {
     recent_.clear();
     std::lock_guard lock(mutex_);
     warmPending_ = true;
+    // The stopped Source's arrivals say nothing about the new one's rates.
+    historyNext_ = 0;
+    historyCount_ = 0;
+    shownSignal_ = shownGame_ = shownPresented_ = 0;
 }
 
 FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
@@ -153,7 +157,10 @@ FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
     int64_t first = 0, last = 0;
     for (size_t i = 0; i < historyCount_; i++) {
         const Arrival& a = history_[(historyNext_ + kHistory - 1 - i) % kHistory];  // newest first
-        if (a.ticks <= from || a.ticks > nowTicks) break;
+        // Recorded after the caller read its clock (the Source's thread got in
+        // first): not part of this reading, but the older ones are.
+        if (a.ticks > nowTicks) continue;
+        if (a.ticks <= from) break;
         if (n == 0) last = a.ticks;
         first = a.ticks;
         n++;
@@ -168,9 +175,12 @@ FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
     }
     const double game = n ? signal * static_cast<double>(uniques) / static_cast<double>(n) : 0.0;
     const double shown = n ? signal * static_cast<double>(presented) / static_cast<double>(n) : 0.0;
-    // A change under one frame per second is jitter of the window, not of the game.
+    // A small change is jitter of the window, not of the game: the figure
+    // moves only once the rate is kRateStep away from it. Under 1, so a rate
+    // just below a whole number (59.94) returns to it after a dip instead of
+    // staying one short.
     auto follow = [](int& shown, double raw) {
-        if (std::abs(raw - shown) >= 1.0 || (raw < 0.5 && shown != 0)) shown = static_cast<int>(std::lround(raw));
+        if (std::abs(raw - shown) >= kRateStep || (raw < 0.5 && shown != 0)) shown = static_cast<int>(std::lround(raw));
     };
     follow(shownSignal_, signal);
     follow(shownGame_, game);

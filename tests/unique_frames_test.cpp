@@ -417,6 +417,110 @@ TEST_CASE("override 60 on a doubled game: Game Rate stays 30, the counter reads 
     CHECK(gp::FpsCounterText(rates) == L"60 FPS");
 }
 
+TEST_CASE("with a tolerance too, how close a Unique Frame was is measured after it is handed on") {
+    UniqueFrameProcessor processor(kTicksPerSecond, 0.002);  // under 2 of 1000 words: a repeat
+    std::vector<TimedFrame> out;
+    processor.Process(Picture(1), out);
+    processor.AfterSubmit();
+    out.clear();
+    processor.Process(NoisyPicture(1, 3), out);  // 0.3%: over the tolerance, under kCloseShare
+    CHECK(out.size() == 1);
+    CHECK(processor.TakeCloseness().closeUnique == 0);  // not yet measured
+    processor.AfterSubmit();
+    const gp::UniqueCloseness close = processor.TakeCloseness();
+    CHECK(close.closeUnique == 1);
+    CHECK(close.closeShareMin == doctest::Approx(0.003));
+}
+
+TEST_CASE("the tolerance has a ceiling, so a mistyped one cannot freeze the picture") {
+    CHECK(UniqueFrameProcessor(kTicksPerSecond, 1.0).Tolerance() == gp::kMaxTolerance);
+    CHECK(UniqueFrameProcessor(kTicksPerSecond, 0.005).Tolerance() == 0.005);
+    CHECK(UniqueFrameProcessor(kTicksPerSecond, -1.0).Tolerance() == 0.0);
+    Feed feed(1.0);
+    feed.Arrive({1, 2, 3});
+    CHECK(feed.emitted.size() == 3);
+}
+
+TEST_CASE("override 30 to Auto: a Unique Frame still waiting its turn is shown by its next copy") {
+    Feed feed;
+    feed.processor.SetOverride(GameRateOverride::Fps30);
+    feed.Arrive({1, 2});  // 2 came too soon: held back
+    REQUIRE(feed.emitted.size() == 1);
+    feed.processor.SetOverride(GameRateOverride::Auto);
+    feed.Arrive({2});
+    REQUIRE(feed.emitted.size() == 2);
+    CHECK(feed.emitted[1]->pixels == Picture(2)->pixels);
+    // Shown once: the still picture after it presents nothing more.
+    for (int i = 0; i < 120; i++) feed.Arrive(Picture(2));
+    CHECK(feed.emitted.size() == 2);
+}
+
+TEST_CASE("override 30 after a very long still picture still shows the first new one at once") {
+    Feed feed;
+    feed.processor.SetOverride(GameRateOverride::Fps30);
+    for (int i = 0; i < 1000; i++) feed.Arrive(Picture(1));
+    CHECK(feed.Arrive(Picture(2)) == 1);
+    CHECK(feed.Arrive(Picture(3)) == 0);  // too soon
+    CHECK(feed.Arrive(Picture(3)) == 1);
+}
+
+TEST_CASE("rates: read at a time just before the newest arrival, they are not zero") {
+    Feed feed;
+    int picture = 0;
+    feed.Game(3, 2, picture);
+    // The window's thread took its time, then the Source recorded one more frame.
+    const int64_t asked = feed.now;
+    feed.Arrive(Picture(++picture));
+    const gp::FrameRates rates = feed.processor.RatesAt(asked);
+    CHECK(rates.signalRate == 60);
+    CHECK(rates.gameRate == 30);
+    CHECK(rates.presentedRate == 30);
+}
+
+TEST_CASE("rates: after Reset the stopped Source's rates are gone at once") {
+    Feed feed;
+    int picture = 0;
+    feed.Game(3, 2, picture);
+    REQUIRE(feed.Rates().signalRate == 60);
+    const gp::UniqueFrameTotals before = feed.processor.Totals();
+    feed.processor.Reset();
+    gp::FrameRates rates = feed.Rates();  // no time has passed, no frame yet
+    CHECK(rates.signalRate == 0);
+    CHECK(rates.gameRate == 0);
+    CHECK(rates.presentedRate == 0);
+    CHECK(feed.processor.Totals().arrived == before.arrived);  // the running totals stay
+    // The new Source's rates hold nothing of the old one's.
+    feed.Game(1, 1, picture);
+    rates = feed.Rates();
+    CHECK(rates.gameRate == rates.signalRate);
+}
+
+TEST_CASE("rates: a Signal Rate just under a whole number reads that number again after a dip") {
+    // 59.95 frames a second: 59950 ticks a second, a frame every 1000 ticks.
+    UniqueFrameProcessor processor(59950);
+    int64_t now = 0;
+    int picture = 0;
+    auto arrive = [&](bool repeat) {
+        if (!repeat) picture++;
+        auto frame = Picture(picture);
+        now += 1000;
+        frame->arrivalQpc = now;
+        std::vector<TimedFrame> out;
+        processor.Process(frame, out);
+        processor.AfterSubmit();
+    };
+    for (int i = 0; i < 180; i++) arrive(false);
+    REQUIRE(processor.RatesAt(now).gameRate == 60);
+    arrive(true);  // two Repeated Frames: 118 Unique Frames in the window
+    arrive(true);
+    REQUIRE(processor.RatesAt(now).gameRate == 59);
+    for (int i = 0; i < 180; i++) arrive(false);
+    const gp::FrameRates rates = processor.RatesAt(now);
+    CHECK(rates.gameRate == 60);
+    CHECK(rates.presentedRate == 60);
+    CHECK(rates.signalRate == 60);
+}
+
 TEST_CASE("with tolerance zero the same noisy repeat is a Unique Frame") {
     Feed feed(0.0);
     feed.Arrive(Picture(1));
