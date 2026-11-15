@@ -16,7 +16,7 @@ namespace gp {
 
 class TextOverlay {
 public:
-    static constexpr size_t kPlaces = 3;  // one per TextPlace
+    static constexpr size_t kPlaces = 4;  // one per TextPlace
     using Texts = std::array<VideoAreaText, kPlaces>;  // indexed by TextPlace
 
     TextOverlay();

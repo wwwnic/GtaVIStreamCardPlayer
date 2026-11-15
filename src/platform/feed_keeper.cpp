@@ -25,12 +25,31 @@ WPARAM Pack(uint32_t generation, uint32_t kind, SourceStage stage) {
 
 int64_t TickNow() { return static_cast<int64_t>(GetTickCount64()); }
 
+int64_t QpcNow() {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return now.QuadPart;
+}
+
+int64_t QpcFrequency() {
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency);
+    return frequency.QuadPart;
+}
+
+double QpcToMs(int64_t ticks) { return static_cast<double>(ticks) * 1000.0 / static_cast<double>(QpcFrequency()); }
+
+void RaiseTo(std::atomic<int64_t>& worst, int64_t value) {
+    int64_t seen = worst.load();
+    while (value > seen && !worst.compare_exchange_weak(seen, value)) {}
+}
+
 }  // namespace
 
-FeedKeeper::FeedKeeper(HWND window, Presenter& presenter, Sound& sound)
+FeedKeeper::FeedKeeper(HWND window, Presenter& presenter, Sound& sound, double tolerance)
     : window_(window),
       presenter_(presenter),
-      processor_(MakePassThroughProcessor()),
+      processor_(std::make_unique<UniqueFrameProcessor>(QpcFrequency(), tolerance)),
       source_(MakeMediaFoundationSource()),
       sound_(sound),
       machine_(TickNow()) {}
@@ -125,7 +144,56 @@ void FeedKeeper::Tick() {
     }
     Apply(machine_.Tick(now));
     ShowState();
-    if (++ticks_ % (1000 / kTickMs) == 0) LogSignalProbe();
+    if (++ticks_ % (1000 / kTickMs) == 0) {
+        LogSignalProbe();
+        LogFrames();
+        UpdateFpsCounter();
+    }
+}
+
+void FeedKeeper::SetGameRateOverride(GameRateOverride setting) {
+    processor_->SetOverride(setting);
+    Log("Frames: override %s", NameOf(setting));
+}
+
+FrameRates FeedKeeper::Rates() { return processor_->RatesAt(QpcNow()); }
+
+void FeedKeeper::ToggleFpsCounter() {
+    fpsCounter_ = !fpsCounter_;
+    Log("Key: FPS counter %s", fpsCounter_ ? "on" : "off");
+    UpdateFpsCounter();
+}
+
+// Never presents by itself: Lossless Scaling would count it as a game frame.
+void FeedKeeper::UpdateFpsCounter() {
+    presenter_.ShowTextWithNextFrame(TextPlace::TopLeft,
+                                     fpsCounter_ ? VideoAreaText{FpsCounterText(Rates()), L""} : VideoAreaText{});
+}
+
+// Once a second: enough to tell from the log alone whether a game's Repeated
+// Frames arrive bit-identical (near repeats, close Unique Frames) and what the
+// comparison costs (a still picture is a full scan per frame).
+void FeedKeeper::LogFrames() {
+    const UniqueFrameTotals now = processor_->Totals();
+    const UniqueFrameTotals& was = loggedTotals_;
+    const UniqueCloseness close = processor_->TakeCloseness();
+    const FrameRates rates = Rates();
+    const uint32_t uniqueCount = timing_.uniqueCount.exchange(0), repeatCount = timing_.repeatCount.exchange(0);
+    const int64_t uniqueTicks = timing_.uniqueTicks.exchange(0), repeatTicks = timing_.repeatTicks.exchange(0);
+    const int64_t uniqueWorst = timing_.uniqueWorst.exchange(0), repeatWorst = timing_.repeatWorst.exchange(0);
+    Log("Frames: arrived %llu, unique %llu, repeated exact %llu near %llu, presented %llu, dropped %llu; "
+        "game rate %d, signal rate %d; override %s, tolerance %.4f; near max %.5f, close unique %u min %.5f; "
+        "compare ms unique avg %.3f worst %.3f, repeated avg %.3f worst %.3f",
+        static_cast<unsigned long long>(now.arrived - was.arrived),
+        static_cast<unsigned long long>(now.unique - was.unique),
+        static_cast<unsigned long long>(now.repeatedExact - was.repeatedExact),
+        static_cast<unsigned long long>(now.repeatedNear - was.repeatedNear),
+        static_cast<unsigned long long>(now.presented - was.presented),
+        static_cast<unsigned long long>(now.dropped - was.dropped), rates.gameRate, rates.signalRate,
+        NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
+        close.closeUnique ? close.closeShareMin : 0.0, uniqueCount ? QpcToMs(uniqueTicks) / uniqueCount : 0.0,
+        QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst));
+    loggedTotals_ = now;
 }
 
 void FeedKeeper::Apply(RecoveryActions actions) {
@@ -138,6 +206,7 @@ void FeedKeeper::RestartFeed() {
     sound_.Stop();
     soundRunning_ = false;
     source_->Stop();
+    processor_->Reset();  // the new Source's first frame is always shown
     const uint32_t generation = ++generation_;
     machine_.FeedRestarted(began);
     firstFrameWanted_ = true;
@@ -151,8 +220,20 @@ void FeedKeeper::RestartFeed() {
                 PostMessageW(window, FeedEventMessage(), Pack(generation, kFirstFrame, SourceStage::Read), 0);
             }
             toShow_.clear();
+            const uint64_t uniqueBefore = processor_->Totals().unique;
+            const int64_t began = QpcNow();
             processor_->Process(std::move(captured), toShow_);
+            const int64_t spent = QpcNow() - began;
             for (TimedFrame& frame : toShow_) presenter_.Submit(std::move(frame));
+            if (processor_->Totals().unique != uniqueBefore) {
+                timing_.uniqueTicks += spent;
+                timing_.uniqueCount++;
+                RaiseTo(timing_.uniqueWorst, spent);
+            } else {
+                timing_.repeatTicks += spent;
+                timing_.repeatCount++;
+                RaiseTo(timing_.repeatWorst, spent);
+            }
         },
         [window, generation](const SourceEvent& event) {
             PostMessageW(window, FeedEventMessage(), Pack(generation, static_cast<uint32_t>(event.kind), event.stage),

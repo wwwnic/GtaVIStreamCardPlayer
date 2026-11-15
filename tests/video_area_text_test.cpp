@@ -85,3 +85,9 @@ TEST_CASE("notes and feedback at the top or bottom are smaller than a state mess
     CHECK(SizeText(TextPlace::Top, 1920, 1080).headline < centre.headline);
     CHECK(SizeText(TextPlace::Bottom, 1920, 1080).headline < centre.headline);
 }
+
+TEST_CASE("the FPS counter in the corner is the smallest text, still readable") {
+    const TextSizes corner = SizeText(TextPlace::TopLeft, 1920, 1080);
+    CHECK(corner.headline < SizeText(TextPlace::Top, 1920, 1080).headline);
+    CHECK(SizeText(TextPlace::TopLeft, 320, 180).headline >= TextSizes::kMinHeadline);
+}

@@ -127,7 +127,7 @@ TEST_CASE("strictly doubled input: the second copy of each picture is dropped") 
 }
 
 TEST_CASE("repeats that differ by card noise under the tolerance are dropped and counted apart") {
-    Feed feed;
+    Feed feed(0.005);
     feed.Arrive(Picture(1));
     feed.Arrive(Picture(1));          // exact
     feed.Arrive(NoisyPicture(1, 2));  // near
@@ -140,7 +140,30 @@ TEST_CASE("repeats that differ by card noise under the tolerance are dropped and
     CHECK(totals.repeatedNear == 1);
     CHECK(totals.presented == 2);
     CHECK(totals.dropped == 2);
-    CHECK(totals.nearShareMax == doctest::Approx(0.002));
+    CHECK(feed.processor.TakeCloseness().nearShareMax == doctest::Approx(0.002));
+}
+
+TEST_CASE("the default tolerance is exact match only: a noisy repeat is shown") {
+    CHECK(gp::kNearDuplicateTolerance == 0.0);
+    Feed feed;
+    feed.Arrive(Picture(1));
+    feed.Arrive(NoisyPicture(1, 2));
+    CHECK(feed.emitted.size() == 2);
+}
+
+TEST_CASE("Unique Frames that were close to repeats are reported, so a tolerance can be chosen later") {
+    Feed feed;  // exact only
+    feed.Arrive(Picture(1));
+    feed.Arrive(NoisyPicture(1, 3));  // 0.3% differ: shown, but close
+    feed.Arrive(Picture(1));          // back to 1: shown, 0.3% from the noisy one
+    feed.Arrive(Picture(2));          // a real change: not close
+    gp::UniqueCloseness close = feed.processor.TakeCloseness();
+    CHECK(close.closeUnique == 2);
+    CHECK(close.closeShareMin == doctest::Approx(0.003));
+    // Taken: the next period starts empty.
+    close = feed.processor.TakeCloseness();
+    CHECK(close.closeUnique == 0);
+    CHECK(close.closeShareMin == 1.0);
 }
 
 TEST_CASE("rates: an all-unique game reads 60 / 60") {
@@ -294,6 +317,18 @@ TEST_CASE("after Reset the next frame is shown even if it repeats the last pictu
     feed.Arrive({1, 1});
     feed.processor.Reset();
     CHECK(feed.Arrive(Picture(1)) == 1);
+}
+
+TEST_CASE("the override is read from a command-line word") {
+    GameRateOverride setting = GameRateOverride::Auto;
+    CHECK(gp::ParseGameRateOverride(L"30", setting));
+    CHECK(setting == GameRateOverride::Fps30);
+    CHECK(gp::ParseGameRateOverride(L"60", setting));
+    CHECK(setting == GameRateOverride::Fps60);
+    CHECK(gp::ParseGameRateOverride(L"auto", setting));
+    CHECK(setting == GameRateOverride::Auto);
+    CHECK_FALSE(gp::ParseGameRateOverride(L"45", setting));
+    CHECK(setting == GameRateOverride::Auto);
 }
 
 TEST_CASE("the FPS counter reads Game Rate / Signal Rate") {

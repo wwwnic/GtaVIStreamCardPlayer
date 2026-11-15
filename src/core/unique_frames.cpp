@@ -17,13 +17,14 @@ FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, doubl
         if (differingShare) *differingShare = 0;
         return FrameMatch::Exact;
     }
-    if (tolerance <= 0) return FrameMatch::Different;
+    if (differingShare) *differingShare = 1.0;
 
-    // Near-duplicate: count differing 8-byte words (a short tail counts as one),
-    // giving up as soon as there are too many to be "fewer than" the tolerance.
+    // Count differing 8-byte words (a short tail counts as one), giving up as
+    // soon as there are too many to be near or close.
     const size_t whole = size / 8;
     const size_t words = whole + (size % 8 ? 1 : 0);
-    const double limit = static_cast<double>(words) * tolerance;
+    const double nearLimit = static_cast<double>(words) * (tolerance > 0 ? tolerance : 0.0);
+    const double limit = static_cast<double>(words) * (tolerance > kCloseShare ? tolerance : kCloseShare);
     size_t differing = 0;
     for (size_t i = 0; i < whole; i++) {
         uint64_t wa, wb;
@@ -36,7 +37,7 @@ FrameMatch CompareFrames(const Frame& a, const Frame& b, double tolerance, doubl
         return FrameMatch::Different;
     }
     if (differingShare) *differingShare = static_cast<double>(differing) / static_cast<double>(words);
-    return FrameMatch::Near;
+    return static_cast<double>(differing) < nearLimit ? FrameMatch::Near : FrameMatch::Different;
 }
 
 const char* NameOf(GameRateOverride setting) {
@@ -48,11 +49,19 @@ const char* NameOf(GameRateOverride setting) {
     return "?";
 }
 
+bool ParseGameRateOverride(const std::wstring& word, GameRateOverride& setting) {
+    if (word == L"auto" || word == L"Auto") setting = GameRateOverride::Auto;
+    else if (word == L"30") setting = GameRateOverride::Fps30;
+    else if (word == L"60") setting = GameRateOverride::Fps60;
+    else return false;
+    return true;
+}
+
 UniqueFrameProcessor::UniqueFrameProcessor(int64_t ticksPerSecond, double tolerance)
     : ticksPerSecond_(ticksPerSecond > 0 ? ticksPerSecond : 1), tolerance_(tolerance > 0 ? tolerance : 0) {}
 
 void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& out) {
-    double share = 0;
+    double share = 1.0;  // the first frame, or one of another size: not close
     const FrameMatch match =
         reference_ ? CompareFrames(*captured, *reference_, tolerance_, &share) : FrameMatch::Different;
     const bool unique = match == FrameMatch::Different;
@@ -88,7 +97,11 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
         if (match == FrameMatch::Exact) totals_.repeatedExact++;
         if (match == FrameMatch::Near) {
             totals_.repeatedNear++;
-            if (share > totals_.nearShareMax) totals_.nearShareMax = share;
+            if (share > closeness_.nearShareMax) closeness_.nearShareMax = share;
+        }
+        if (unique && share < kCloseShare) {
+            closeness_.closeUnique++;
+            if (share < closeness_.closeShareMin) closeness_.closeShareMin = share;
         }
         if (emit) totals_.presented++; else totals_.dropped++;
     }
@@ -134,6 +147,13 @@ FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
 UniqueFrameTotals UniqueFrameProcessor::Totals() {
     std::lock_guard lock(mutex_);
     return totals_;
+}
+
+UniqueCloseness UniqueFrameProcessor::TakeCloseness() {
+    std::lock_guard lock(mutex_);
+    const UniqueCloseness taken = closeness_;
+    closeness_ = {};
+    return taken;
 }
 
 std::wstring FpsCounterText(FrameRates rates) {
