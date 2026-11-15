@@ -51,7 +51,7 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `sound.*`: the Feed sound. WASAPI shared mode, event-driven, capture from the card's endpoint and render to the Windows default output, following changes to that default. Volume, mute and Audio Delay are plain get / set values here.
   - `feedback.*`: shows the confirmation line through `Presenter::ShowText(TextPlace::Top, ..., 1500)`. The Presenter presents by itself when a text appears or ends, so it shows and clears on time even with a static, black or absent picture.
   - `fullscreen.*`: borderless fullscreen (F11, Esc), the hiding cursor, monitor changes. Window chrome is hidden and restored in one place, `ShowChrome`.
-  - `keep_awake.*`: no system or display sleep while a Feed plays (the Playing state only).
+  - `keep_awake.*`: no system or display sleep while a Feed plays (the Playing state only). Holds a power request (`powercfg /requests`, elevated, lists "GamePlayer: a Feed is playing") and the window thread's execution state, and resets the idle timers each second. Logs take, release (with reason), a minute-by-minute "still held", and every display on / off / dimmed.
   - `single_instance.*`: a second launch brings the running window forward and exits.
   - `log.*`: the debug log.
 - `src/app/main.cpp`: the window. Opens with a 16:9 Video Area (1280x720, smaller if the monitor is), minimum 480x270 at 100% scaling, and keeps 16:9 while dragged. Maximised, fullscreen, snaps and programmatic sizes may give other shapes; the picture then keeps its shape with black bars.
