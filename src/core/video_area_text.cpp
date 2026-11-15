@@ -10,8 +10,9 @@ TextSizes SizeText(TextPlace place, int areaWidth, int areaHeight) {
     const bool centre = place == TextPlace::Centre;
     // A share of the Video Area's height (readable from a sofa at 1080p),
     // limited by its width so a narrow window wraps to few lines.
-    const float byHeight = height * (centre ? 0.065f : 0.04f);
-    const float byWidth = width * (centre ? 0.045f : 0.03f);
+    const bool corner = place == TextPlace::TopLeft;
+    const float byHeight = height * (centre ? 0.065f : corner ? 0.025f : 0.04f);
+    const float byWidth = width * (centre ? 0.045f : corner ? 0.02f : 0.03f);
     TextSizes sizes;
     sizes.headline = std::max(std::min(byHeight, byWidth), TextSizes::kMinHeadline);
     sizes.detail = std::max(sizes.headline * 0.55f, TextSizes::kMinDetail);

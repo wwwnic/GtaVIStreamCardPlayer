@@ -11,6 +11,7 @@ enum class TextPlace {
     Centre,  // the Video Area state message (ticket 06); hides nothing by itself
     Top,     // brief feedback, e.g. volume or Audio Delay (ticket 07)
     Bottom,  // a small lasting note, e.g. "no sound"
+    TopLeft, // the FPS counter (ticket 04): small, left-aligned in the corner
 };
 
 // One line saying what is wrong, optionally a smaller line saying what to do.

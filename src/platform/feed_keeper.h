@@ -13,6 +13,7 @@
 
 #include "core/processor.h"
 #include "core/source.h"
+#include "core/unique_frames.h"
 #include "core/video_area_state.h"
 #include "platform/presenter.h"
 #include "platform/sound.h"
@@ -22,7 +23,8 @@ namespace gp {
 class FeedKeeper {
 public:
     // Starts and stops `sound` with the picture; its audio settings are the caller's.
-    FeedKeeper(HWND window, Presenter& presenter, Sound& sound);
+    // tolerance: the near-duplicate tolerance for Repeated Frames (core/unique_frames.h).
+    FeedKeeper(HWND window, Presenter& presenter, Sound& sound, double tolerance = kNearDuplicateTolerance);
     ~FeedKeeper();
     FeedKeeper(const FeedKeeper&) = delete;
     FeedKeeper& operator=(const FeedKeeper&) = delete;
@@ -42,6 +44,14 @@ public:
     // arrived since the previous call.
     bool TakePlayingSecond();
 
+    // Auto / 30 / 60 (ticket 08 will put it in the menu). Takes effect at once.
+    void SetGameRateOverride(GameRateOverride setting);
+    // Signal Rate and Game Rate now (for the Help or debug display).
+    FrameRates Rates();
+    // The F key: the FPS counter on or off. Off at every launch. It is only
+    // drawn into frames presented anyway, so it shows with the next one.
+    void ToggleFpsCounter();
+
 private:
     void Tick();
     void Apply(RecoveryActions actions);
@@ -49,11 +59,20 @@ private:
     void StartSound();
     void ShowState();
     void LogSignalProbe();
+    void LogFrames();
+    void UpdateFpsCounter();
     int64_t Now() const;
 
     HWND window_;
     Presenter& presenter_;
-    std::unique_ptr<Processor> processor_;
+    std::unique_ptr<UniqueFrameProcessor> processor_;
+    bool fpsCounter_ = false;
+    UniqueFrameTotals loggedTotals_;   // at the previous Frames: line
+    // Time spent in Process, the Source's thread; read and reset once a second.
+    struct ProcessTiming {
+        std::atomic<int64_t> uniqueTicks{0}, uniqueWorst{0}, repeatTicks{0}, repeatWorst{0};
+        std::atomic<uint32_t> uniqueCount{0}, repeatCount{0};
+    } timing_;
     std::unique_ptr<Source> source_;
     Sound& sound_;
     bool soundRunning_ = false;

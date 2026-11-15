@@ -2,8 +2,10 @@
 // This file is the window; FeedKeeper wires Source -> Processor -> Presenter.
 //
 // Arguments: --run N   close by itself after N seconds (unattended smoke runs).
+// --tolerance X   near-duplicate tolerance for Repeated Frames (default 0, exact).
+// --rate auto|30|60   the Game Rate override (default auto).
 // Keys: F11 toggles borderless fullscreen, Esc leaves it. Up / Down volume,
-// M mute, J / K Audio Delay (sound earlier / later).
+// M mute, J / K Audio Delay (sound earlier / later). F the FPS counter.
 #include <windows.h>
 
 #include <objbase.h>
@@ -36,7 +38,8 @@ const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
-    explicit App(HWND window) : feedback(presenter), fullscreen(window), feed(window, presenter, sound) {}
+    App(HWND window, double tolerance)
+        : feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
     gp::Presenter presenter;
     gp::Sound sound;  // started and stopped by the FeedKeeper; its settings persist
     gp::Feedback feedback;
@@ -153,6 +156,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     switch (message) {
     case WM_KEYDOWN:
         if (app && HandleAudioKey(*app, wParam, lParam)) return 0;
+        if (app && wParam == 'F') {
+            if (!(lParam & (1 << 30))) app->feed.ToggleFpsCounter();  // held F toggles once
+            return 0;
+        }
         break;
     case WM_SIZING:
         // Windowed drags only: maximised and fullscreen have no sizing border.
@@ -192,16 +199,25 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     return DefWindowProcW(window, message, wParam, lParam);
 }
 
-int RunSecondsFromCommandLine() {
-    int seconds = 0;
+struct Arguments {
+    int runSeconds = 0;
+    double tolerance = gp::kNearDuplicateTolerance;
+    gp::GameRateOverride rate = gp::GameRateOverride::Auto;
+};
+
+// --run N, --tolerance X (e.g. 0.005), --rate auto|30|60.
+Arguments ArgumentsFromCommandLine() {
+    Arguments parsed;
     int count = 0;
     LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &count);
-    if (!arguments) return 0;
+    if (!arguments) return parsed;
     for (int i = 1; i + 1 < count; i++) {
-        if (wcscmp(arguments[i], L"--run") == 0) seconds = _wtoi(arguments[i + 1]);
+        if (wcscmp(arguments[i], L"--run") == 0) parsed.runSeconds = std::max(_wtoi(arguments[i + 1]), 0);
+        if (wcscmp(arguments[i], L"--tolerance") == 0) parsed.tolerance = std::max(_wtof(arguments[i + 1]), 0.0);
+        if (wcscmp(arguments[i], L"--rate") == 0) gp::ParseGameRateOverride(arguments[i + 1], parsed.rate);
     }
     LocalFree(arguments);
-    return seconds > 0 ? seconds : 0;
+    return parsed;
 }
 
 std::wstring LogPathBesideExecutable() {
@@ -237,7 +253,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     // Before the log opens, so a second launch leaves the running copy's log alone.
     if (!gp::ClaimSingleInstance(kWindowClass)) return 0;
     gp::LogOpen(LogPathBesideExecutable());
-    const int runSeconds = RunSecondsFromCommandLine();
+    const Arguments arguments = ArgumentsFromCommandLine();
+    const int runSeconds = arguments.runSeconds;
     gp::Log("GamePlayer starting%s", runSeconds ? " (--run: will close by itself)" : "");
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -251,7 +268,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     {
-        App app(window);
+        App app(window, arguments.tolerance);
+        app.feed.SetGameRateOverride(arguments.rate);  // logs the setting
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
         if (!app.presenter.Start(window)) gp::Log("No Presenter: the window stays black");

@@ -57,6 +57,12 @@ public:
     // (brief feedback). Drawn even when no frames arrive. Any thread.
     void ShowText(TextPlace place, VideoAreaText text, int durationMs = 0);
 
+    // Like ShowText, but never causes a present: the text is drawn into the
+    // next frame presented for another reason (a Unique Frame, a resize). For
+    // the FPS counter, since Lossless Scaling counts every present as a game
+    // frame. On a still picture it waits. Any thread.
+    void ShowTextWithNextFrame(TextPlace place, VideoAreaText text);
+
     // false: the Video Area is black behind the texts (a state message is
     // showing); frames are still taken. Any thread.
     void ShowPicture(bool visible);

@@ -136,6 +136,7 @@ public:
             thread_.join();
         }
         slot_.Take();
+        lastFrame_.reset();
         ReleaseDevice();
         if (wake_) CloseHandle(wake_);
         wake_ = nullptr;
@@ -175,6 +176,14 @@ public:
             textEndsAt_[index] = durationMs > 0 ? GetTickCount64() + static_cast<ULONGLONG>(durationMs) : 0;
         }
         Repaint();
+    }
+
+    void ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
+        const size_t index = static_cast<size_t>(place);
+        if (index >= TextOverlay::kPlaces) return;
+        std::lock_guard lock(textMutex_);
+        texts_[index] = std::move(text);
+        textEndsAt_[index] = 0;
     }
 
     void ShowPicture(bool visible) {
@@ -352,6 +361,8 @@ private:
                 Log("Presenter: device recreated after a loss");
                 deviceLost_ = false;
                 resized_ = true;
+                // On a still picture no new frame is coming: show the last one again.
+                if (lastFrame_) ConvertToPicture(*lastFrame_);
             }
 
             bool draw = repaint_.exchange(false) || EndExpiredTexts();
@@ -360,7 +371,10 @@ private:
                 draw = true;  // also repaints when no new frame is coming
             }
             std::optional<TimedFrame> next = slot_.Take();
-            if (next && ConvertToPicture(*next->frame)) draw = true;
+            if (next && ConvertToPicture(*next->frame)) {
+                draw = true;
+                lastFrame_ = next->frame;
+            }
             if (!draw || !backBufferView_) continue;
 
             ShowAndPresent();
@@ -594,6 +608,7 @@ private:
     ComPtr<ID3D11RenderTargetView> pictureTarget_;
     ComPtr<ID3D11ShaderResourceView> pictureView_;
     bool havePicture_ = false;
+    FramePtr lastFrame_;  // the frame in picture_, kept to rebuild it after a device loss
     uint32_t pictureWidth_ = 0, pictureHeight_ = 0;
     PixelFormat pictureFormat_ = PixelFormat::YUY2;
     Colour pictureColour_;
@@ -607,6 +622,9 @@ void Presenter::Submit(TimedFrame frame) { impl_->Submit(std::move(frame)); }
 void Presenter::VideoAreaResized() { impl_->VideoAreaResized(); }
 void Presenter::ShowText(TextPlace place, VideoAreaText text, int durationMs) {
     impl_->ShowText(place, std::move(text), durationMs);
+}
+void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
+    impl_->ShowTextWithNextFrame(place, std::move(text));
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 Presenter::Stats Presenter::TakeStats() { return impl_->TakeStats(); }

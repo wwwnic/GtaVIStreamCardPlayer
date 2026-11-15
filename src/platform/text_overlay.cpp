@@ -67,6 +67,11 @@ struct TextOverlay::Impl {
         const TextSizes sizes = SizeText(place, static_cast<int>(width), static_cast<int>(height));
         ComPtr<IDWriteTextLayout> headline = Layout(text.headline, sizes.headline, true, sizes.maxWidth);
         ComPtr<IDWriteTextLayout> detail = Layout(text.detail, sizes.detail, false, sizes.maxWidth);
+        const bool corner = place == TextPlace::TopLeft;
+        if (corner) {
+            if (headline) headline->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            if (detail) detail->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
         DWRITE_TEXT_METRICS headlineSize = {}, detailSize = {};
         if (headline) headline->GetMetrics(&headlineSize);
         if (detail) detail->GetMetrics(&detailSize);
@@ -77,13 +82,14 @@ struct TextOverlay::Impl {
         float top = 0;
         switch (place) {
         case TextPlace::Centre: top = (static_cast<float>(height) - blockHeight) / 2; break;
-        case TextPlace::Top: top = sizes.margin; break;
+        case TextPlace::Top:
+        case TextPlace::TopLeft: top = sizes.margin; break;
         case TextPlace::Bottom: top = static_cast<float>(height) - sizes.margin - blockHeight; break;
         }
         const float left = sizes.margin;
         // A dark rounded backing, so the text reads over a bright picture too.
         const float pad = sizes.detail * 0.6f;
-        const float centreX = static_cast<float>(width) / 2;
+        const float centreX = corner ? left + blockWidth / 2 : static_cast<float>(width) / 2;
         const D2D1_ROUNDED_RECT backing = {
             D2D1::RectF(centreX - blockWidth / 2 - pad, top - pad / 2, centreX + blockWidth / 2 + pad,
                         top + blockHeight + pad / 2),
