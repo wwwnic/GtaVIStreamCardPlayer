@@ -73,7 +73,10 @@ void FeedKeeper::Start() {
     presenter_.ShowPicture(false);
     presenter_.ShowText(TextPlace::Centre, MessageFor(machine_.State(), {}));
     SetTimer(window_, kTickTimer, kTickMs, nullptr);
-    Tick();
+    // The first tick opens the Capture Card, which blocks this thread. It is
+    // posted, not run here, so the caller shows the window first and Loading
+    // is on screen while the card opens.
+    PostMessageW(window_, WM_TIMER, kTickTimer, 0);
 }
 
 void FeedKeeper::Stop() {
@@ -113,6 +116,9 @@ bool FeedKeeper::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESU
             event.kind = static_cast<SourceEvent::Kind>(kind);
             event.stage = static_cast<SourceStage>(wParam & 15);
             event.code = static_cast<uint32_t>(lParam);
+            // A failure ends this Source's frames. One that arrived just
+            // before it must not count as a frame after it at the next tick.
+            if (event.kind == SourceEvent::Kind::Failed) frameSinceTick_ = false;
             if (!FallBackFrom(event)) Apply(machine_.SourceReported(event, Now()));
         }
         ShowState();
@@ -128,7 +134,7 @@ bool FeedKeeper::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESU
         if (wParam == PBT_APMSUSPEND) Log("Feed: PC going to sleep");
         if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) {
             Log("Feed: PC resumed from sleep");
-            machine_.DevicesChanged(Now());
+            machine_.Resumed(Now());
         }
         *result = TRUE;
         return true;
@@ -231,7 +237,10 @@ void FeedKeeper::LogFrames() {
 
 void FeedKeeper::Apply(RecoveryActions actions) {
     if (actions.restartFeed) RestartFeed();
-    if (actions.startSound) StartSound();
+    if (actions.startSound) {
+        ShowState();  // the picture first: opening the sound blocks this thread
+        StartSound();
+    }
 }
 
 void FeedKeeper::RestartFeed() {
@@ -288,15 +297,18 @@ void FeedKeeper::StartSound() {
 
 void FeedKeeper::ShowState() {
     const VideoAreaState state = machine_.State();
-    if (state != shown_) {
-        const SourceEvent failure = machine_.Failure();
-        if (state == VideoAreaState::Error || state == VideoAreaState::CardBusy) {
+    // Error and Card busy carry a failure; it can change while the state stays.
+    const bool carriesFailure = state == VideoAreaState::Error || state == VideoAreaState::CardBusy;
+    const SourceEvent failure = carriesFailure ? machine_.Failure() : SourceEvent{};
+    if (state != shown_ || failure != shownFailure_) {
+        if (carriesFailure) {
             Log("Video Area: %s -> %s (hr=0x%08X, %s)", NameOf(shown_), NameOf(state), failure.code,
                 NameOf(failure.stage));
         } else {
             Log("Video Area: %s -> %s", NameOf(shown_), NameOf(state));
         }
         shown_ = state;
+        shownFailure_ = failure;
         presenter_.ShowText(TextPlace::Centre, MessageFor(state, failure));
         presenter_.ShowPicture(state == VideoAreaState::Playing);
     }

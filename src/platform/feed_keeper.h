@@ -100,6 +100,7 @@ private:
     std::function<void(Resolution)> fellBack_;
     VideoAreaStateMachine machine_;
     VideoAreaState shown_ = VideoAreaState::Loading;
+    SourceEvent shownFailure_;  // the failure in the Error or Card busy text shown; default otherwise
     bool shownSoundNote_ = false;
     bool running_ = false;
     HDEVNOTIFY deviceNotification_ = nullptr;
