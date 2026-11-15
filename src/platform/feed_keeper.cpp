@@ -187,9 +187,30 @@ bool FeedKeeper::FallBackFrom(const SourceEvent& event) {
     const Resolution failed = *choice_.resolution;
     Log("Feed: resolution %ux%u did not start (hr=0x%08X, %s); back to the default mode", failed.width, failed.height,
         event.code, NameOf(event.stage));
-    if (fellBack_) fellBack_(failed);  // may call SetChoice itself
+    if (fellBack_) fellBack_(failed, true);  // may call SetChoice itself
     if (choice_.resolution) SetChoice(choice_.device, choice_.deviceId, std::nullopt);
     return true;
+}
+
+// A chosen resolution the card does not list (a remembered one, another
+// card): the Source opened the default mode instead. Said, and dropped.
+void FeedKeeper::DropUnofferedResolution() {
+    const std::optional<CaptureMode> mode = source_->CurrentMode();
+    if (!choice_.resolution || !mode) return;
+    const Resolution dropped = *choice_.resolution;
+    if (mode->width == dropped.width && mode->height == dropped.height) return;
+    choice_.resolution.reset();
+    source_->Choose(choice_);
+    Log("Feed: resolution %ux%u is not offered by \"%s\"; the default mode", dropped.width, dropped.height,
+        ToUtf8(source_->DeviceName()).c_str());
+    if (fellBack_) fellBack_(dropped, false);
+}
+
+void FeedKeeper::KeepDeviceInUse(const std::wstring& device, const std::wstring& deviceId) {
+    choice_.device = device;
+    choice_.deviceId = deviceId;
+    source_->Choose(choice_);
+    Log("Feed: choice: device %s, the one playing (no restart)", ToUtf8(device).c_str());
 }
 
 FrameRates FeedKeeper::Rates() { return processor_->RatesAt(QpcNow()); }
@@ -290,6 +311,7 @@ void FeedKeeper::RestartFeed() {
                          static_cast<LPARAM>(event.code));
         });
     lastRestartMs_ = Now() - began;
+    DropUnofferedResolution();
 }
 
 void FeedKeeper::StartSound() {

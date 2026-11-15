@@ -27,20 +27,46 @@ TEST_CASE("the settings start at the zero-configuration defaults") {
     CHECK(settings.audio.audioDelayMs == 0);
     CHECK_FALSE(settings.alwaysOnTop);
     CHECK_FALSE(settings.vsync);
+    CHECK_FALSE(settings.fpsCounter);
+    CHECK(settings.captureCardId.empty());
 }
 
 TEST_CASE("Capture Card lists the present devices and checks the one in use") {
-    const std::vector<std::wstring> present = {L"Integrated Webcam", L"Live Gamer ULTRA S GC553Pro"};
-    const std::vector<MenuItem> items = gp::CaptureCardItems(present, L"Live Gamer ULTRA S GC553Pro");
+    const std::vector<gp::CaptureCardEntry> present = {{L"Integrated Webcam", L"\\\\?\\usb#cam"},
+                                                       {L"Live Gamer ULTRA S GC553Pro", L"\\\\?\\usb#gc553"}};
+    const std::vector<MenuItem> items =
+        gp::CaptureCardItems(present, {L"Live Gamer ULTRA S GC553Pro", L"\\\\?\\usb#gc553"});
     REQUIRE(items.size() == 2);
     CHECK(items[0].label == L"Integrated Webcam");
     CHECK_FALSE(items[0].checked);
+    CHECK(items[1].label == L"Live Gamer ULTRA S GC553Pro");
     CHECK(items[1].checked);
     CHECK(items[1].enabled);
 }
 
+TEST_CASE("two Capture Cards of the same name: numbered, and only the one in use is checked") {
+    const std::vector<gp::CaptureCardEntry> present = {
+        {L"USB Video", L"\\\\?\\usb#b"}, {L"Integrated Webcam", L"\\\\?\\usb#cam"}, {L"USB Video", L"\\\\?\\usb#a"}};
+    const std::vector<MenuItem> items = gp::CaptureCardItems(present, {L"USB Video", L"\\\\?\\usb#a"});
+    REQUIRE(items.size() == 3);
+    CHECK(items[0].label == L"USB Video (1)");
+    CHECK(items[1].label == L"Integrated Webcam");
+    CHECK(items[2].label == L"USB Video (2)");
+    CHECK_FALSE(items[0].checked);
+    CHECK(items[2].checked);
+    CHECK(CheckedCount(items) == 1);
+}
+
+TEST_CASE("a Capture Card with no identifier is checked by its name") {
+    const std::vector<gp::CaptureCardEntry> present = {{L"Integrated Webcam", L""}, {L"USB Video", L""}};
+    const std::vector<MenuItem> items = gp::CaptureCardItems(present, {L"USB Video", L"\\\\?\\usb#a"});
+    CHECK(items[1].checked);
+    CHECK(CheckedCount(items) == 1);
+    CHECK(CheckedCount(gp::CaptureCardItems(present, {})) == 0);
+}
+
 TEST_CASE("Capture Card with no device shows one greyed line") {
-    const std::vector<MenuItem> items = gp::CaptureCardItems({}, L"");
+    const std::vector<MenuItem> items = gp::CaptureCardItems({}, {});
     REQUIRE(items.size() == 1);
     CHECK_FALSE(items[0].enabled);
     CHECK_FALSE(items[0].checked);
@@ -134,9 +160,9 @@ TEST_CASE("View > FPS counter shows the F key and is checked while the counter s
     CHECK(view.fpsCounter.checked);
 }
 
-TEST_CASE("Hotkeys lists all eight keys") {
-    const std::wstring text = gp::HotkeysText();
-    for (const wchar_t* key : {L"F11", L"Esc", L"M", L"Up", L"Down", L"J", L"K", L"F\t"}) {
+TEST_CASE("Hotkeys lists all eight keys, each at the start of its line") {
+    const std::wstring text = L"\n" + gp::HotkeysText();
+    for (const wchar_t* key : {L"\nF11\t", L"\nEsc\t", L"\nM\t", L"\nUp / Down\t", L"\nJ / K\t", L"\nF\t"}) {
         CAPTURE(std::wstring(key));
         CHECK(Contains(text, key));
     }
@@ -174,6 +200,16 @@ TEST_CASE("About with a Frame rate override keeps the detected Game Rate and say
 
 TEST_CASE("About says so when no card or mode is in use") {
     const std::wstring text = gp::AboutText(gp::AboutInfo{});
-    CHECK(Contains(text, L"Capture Card: none"));
+    CHECK(Contains(text, L"Capture Card: none\n"));
     CHECK(Contains(text, L"Capture mode: none"));
+}
+
+TEST_CASE("About names a card that is there but not playing (busy, failed)") {
+    gp::AboutInfo info;
+    info.device = L"Live Gamer ULTRA S GC553Pro";
+    const std::wstring text = gp::AboutText(info);
+    CHECK(Contains(text, L"Capture Card: Live Gamer ULTRA S GC553Pro (not playing)\n"));
+    CHECK(Contains(text, L"Capture mode: none"));
+    info.mode = gp::CaptureMode{PixelFormat::YUY2, 1920, 1080, 60, 1};
+    CHECK_FALSE(Contains(gp::AboutText(info), L"not playing"));
 }

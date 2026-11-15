@@ -54,9 +54,14 @@ public:
     // automatic). Restarts picture and sound at once through Loading, like a
     // launch.
     void SetChoice(const std::wstring& device, const std::wstring& deviceId, std::optional<Resolution> resolution);
-    // A chosen resolution that fails to start is dropped for the default
-    // mode; this is told which one failed (to clear it from the settings).
-    void OnResolutionFallback(std::function<void(Resolution)> told) { fellBack_ = std::move(told); }
+    // The Capture Card already playing (the automatic choice), now chosen:
+    // later restarts keep to it. Nothing restarts now.
+    void KeepDeviceInUse(const std::wstring& device, const std::wstring& deviceId);
+    // A chosen resolution that fails to start, or that the card does not
+    // offer (offered false; the default mode is then already open), is
+    // dropped for the default mode; this is told which one (to clear it from
+    // the settings).
+    void OnResolutionFallback(std::function<void(Resolution, bool offered)> told) { fellBack_ = std::move(told); }
     // What is in use, for the menu and About.
     std::wstring DeviceInUse() const { return source_->DeviceName(); }
     std::wstring DeviceIdInUse() const { return source_->DeviceId(); }
@@ -73,6 +78,7 @@ private:
     void Tick();
     void Apply(RecoveryActions actions);
     bool FallBackFrom(const SourceEvent& event);
+    void DropUnofferedResolution();
     void RestartFeed();
     void StartSound();
     void ShowState();
@@ -97,7 +103,7 @@ private:
     bool soundRunning_ = false;
     Source::Choice choice_;
     bool choiceProven_ = true;  // a frame arrived since the choice was made
-    std::function<void(Resolution)> fellBack_;
+    std::function<void(Resolution, bool)> fellBack_;
     VideoAreaStateMachine machine_;
     VideoAreaState shown_ = VideoAreaState::Loading;
     SourceEvent shownFailure_;  // the failure in the Error or Card busy text shown; default otherwise

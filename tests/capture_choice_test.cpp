@@ -201,8 +201,8 @@ std::vector<CaptureMode> CardModes() {
         Mjpeg(3840, 2160, 60, 1),                            // 9
         {PixelFormat::NV12, 1920, 1080, k120, k120d},        // 10 the unpaired 1080p120
         {PixelFormat::NV12, 1280, 720, 60, 1},               // 11
-        {PixelFormat::NV12, 2560, 1440, 60, 1},              // 12
-        {PixelFormat::NV12, 3840, 2160, 30, 1},              // 13
+        {PixelFormat::NV12, 2560, 1440, 60, 1},              // 12 limited range BT.709, no twin: offered
+        {PixelFormat::NV12, 3840, 2160, 30, 1},              // 13 the same
         {kOther, 640, 480, 60, 1},                           // 14 RGB24
     };
 }
@@ -250,6 +250,19 @@ TEST_CASE("an MJPEG twin is recognised when its rate is the same number written 
         Mjpeg(1280, 720, 60000, 2002),
     };
     CHECK(gp::OfferedResolutions(modes).empty());
+}
+
+TEST_CASE("the Resolution menu stops at 60 fps: a rate just above is never offered") {
+    std::vector<CaptureMode> modes = {
+        {PixelFormat::YUY2, 1280, 720, 241, 4},            // 60.25
+        {PixelFormat::NV12, 1280, 800, 6050, 100},         // 60.5
+        {PixelFormat::YUY2, 1920, 1080, 10000000, 166666}, // 60.0002: still 60
+        {PixelFormat::YUY2, 720, 480, 60000, 1001},        // 59.94
+    };
+    const std::vector<gp::OfferedResolution> offered = gp::OfferedResolutions(modes);
+    REQUIRE(offered.size() == 2);
+    CHECK(offered[0].resolution == gp::Resolution{720, 480});
+    CHECK(offered[1].resolution == gp::Resolution{1920, 1080});
 }
 
 TEST_CASE("an MJPEG mode of the same size at another rate is not a twin") {

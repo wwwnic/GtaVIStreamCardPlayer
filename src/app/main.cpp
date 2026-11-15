@@ -136,7 +136,7 @@ void ApplyAllSettings(App& app) {
 
 void ShowAbout(App& app) {
     gp::AboutInfo info;
-    info.device = app.feed.CurrentMode() ? app.feed.DeviceInUse() : L"";
+    info.device = app.feed.DeviceInUse();  // "(not playing)" without a mode
     info.mode = app.feed.CurrentMode();
     info.rates = app.feed.Rates();
     info.frameRate = app.settings.frameRate;
@@ -151,17 +151,17 @@ void HandleMenuCommand(App& app, UINT id) {
     gp::ViewerSettings& s = app.settings;
     gp::ViewerSettings& kept = app.remembered;  // each choice is remembered as made
     if (const auto card = app.menu.CaptureCardFor(id)) {
-        gp::Log("Menu: Capture Card \"%s\"", gp::ToUtf8(*card).c_str());
-        if (*card == app.feed.DeviceInUse() && app.feed.CurrentMode()) {  // already showing it
-            if (kept.captureCard != *card) {  // the automatic choice, now chosen
-                s.captureCard = kept.captureCard = *card;
-                s.captureCardId = kept.captureCardId = app.feed.DeviceIdInUse();
-                kept.resolution = s.resolution;
-            }
+        gp::Log("Menu: Capture Card \"%s\" id %s", gp::ToUtf8(card->name).c_str(), gp::ToUtf8(card->id).c_str());
+        const bool showing = app.feed.CurrentMode() && (card->id.empty() ? card->name == app.feed.DeviceInUse()
+                                                                          : card->id == app.feed.DeviceIdInUse());
+        if (showing) {  // already showing it (perhaps as the automatic choice): now chosen, no restart
+            s.captureCard = kept.captureCard = card->name;
+            s.captureCardId = kept.captureCardId = card->id;
+            app.feed.KeepDeviceInUse(card->name, card->id);
             return;
         }
-        s.captureCard = *card;
-        s.captureCardId.clear();  // learnt once it opens (LearnCaptureCardId)
+        s.captureCard = card->name;
+        s.captureCardId = card->id;  // empty: learnt once it opens (LearnCaptureCardId)
         s.resolution.reset();  // the Resolution list belongs to a card
         kept.captureCard = s.captureCard;
         kept.captureCardId = s.captureCardId;
@@ -189,6 +189,7 @@ void HandleMenuCommand(App& app, UINT id) {
                       : id == gp::kMenuRate30 ? gp::GameRateOverride::Fps30
                                               : gp::GameRateOverride::Fps60;
         kept.frameRate = s.frameRate;
+        gp::Log("Menu: Frame rate %s", gp::NameOf(s.frameRate));
         app.feed.SetGameRateOverride(s.frameRate);  // logs "Frames: override ..."
         break;
     case gp::kMenuVolumeUp: PressAudio(app, gp::AudioKey::VolumeUp, "Menu"); break;
@@ -228,7 +229,7 @@ void MenuOpening(App& app, HMENU popup) {
     gp::MenuBar::State state;
     state.settings = app.settings;
     state.fullscreen = app.fullscreen.IsOn();
-    state.deviceInUse = app.feed.CurrentMode() ? app.feed.DeviceInUse() : L"";
+    state.deviceInUse = {app.feed.DeviceInUse(), app.feed.DeviceIdInUse()};  // checked while not playing too
     state.modes = app.feed.Modes();
     app.menu.Opening(popup, state);
 }
@@ -604,10 +605,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         app.settings = app.remembered = loaded.viewer;
         if (arguments.rate) app.settings.frameRate = *arguments.rate;  // this run only
         app.fullscreen.SetMenuBar(menuBar.Handle());
-        app.feed.OnResolutionFallback([&app](gp::Resolution failed) {
+        app.feed.OnResolutionFallback([&app](gp::Resolution failed, bool offered) {
             app.settings.resolution.reset();  // this run only; the choice stays remembered
             app.feedback.Show(std::to_string(failed.width) + "x" + std::to_string(failed.height) +
-                              " did not start: back to 1080p");
+                              (offered ? " did not start: back to 1080p" : " is not offered by this card: 1080p"));
         });
         ApplyAllSettings(app);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));

@@ -14,8 +14,8 @@ namespace gp {
 // Requires COM to be initialised on the calling thread.
 std::unique_ptr<Source> MakeMediaFoundationSource();
 
-// The video capture devices present now, by name (for the menu). Needs a
-// Source to exist (Media Foundation started) and COM on the calling thread.
-std::vector<std::wstring> ListCaptureDevices();
+// The video capture devices present now, name and identifier (for the menu).
+// Needs a Source to exist (Media Foundation started) and COM on the calling thread.
+std::vector<CaptureCardEntry> ListCaptureDevices();
 
 }  // namespace gp
