@@ -75,6 +75,7 @@ struct FrameRates {
     int signalRate = 0;  // frames arriving from the Capture Card
     int gameRate = 0;    // Unique Frames among them (detected, whatever the override)
     int presentedRate = 0;  // frames the Viewer presents: the Game Rate on Auto, else per the override
+    bool warm = false;      // a full rate window has passed since the first frame (after start or Reset)
 };
 
 class UniqueFrameProcessor final : public Processor {
@@ -139,11 +140,14 @@ private:
     int shownSignal_ = 0;
     int shownGame_ = 0;
     int shownPresented_ = 0;
+    bool warmPending_ = true;  // no frame yet since start or Reset
+    int64_t warmFrom_ = 0;     // the first frame's arrival since then
 };
 
-// The on-screen FPS counter's text: "presented rate / Signal Rate", e.g. "30 / 60".
-// The first number is what is shown (and what Lossless Scaling counts): the Game
-// Rate on Auto, the override's rate otherwise.
+// The on-screen FPS counter's text: the presented rate, e.g. "30 FPS". That is
+// what is shown (and what Lossless Scaling counts): the Game Rate on Auto, the
+// override's rate otherwise. Empty (nothing shown) until the rates are warm, so
+// a start or restart never reads misleadingly low.
 std::wstring FpsCounterText(FrameRates rates);
 
 }  // namespace gp

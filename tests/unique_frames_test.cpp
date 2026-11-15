@@ -233,7 +233,7 @@ TEST_CASE("a fully static Feed reads Game Rate 0 with Signal Rate 60, and nothin
     CHECK(rates.signalRate == 60);
     CHECK(rates.gameRate == 0);
     CHECK(feed.emitted.size() == 1);
-    CHECK(gp::FpsCounterText(rates) == L"0 / 60");
+    CHECK(gp::FpsCounterText(rates) == L"0 FPS");
 }
 
 TEST_CASE("a long still run followed by motion: the first new picture is shown at once and the rate recovers") {
@@ -345,11 +345,43 @@ TEST_CASE("the override is read from a command-line word") {
     CHECK(setting == GameRateOverride::Auto);
 }
 
-TEST_CASE("the FPS counter reads presented rate / Signal Rate") {
-    CHECK(gp::FpsCounterText({60, 30, 30}) == L"30 / 60");
-    CHECK(gp::FpsCounterText({60, 60, 60}) == L"60 / 60");
-    CHECK(gp::FpsCounterText({60, 60, 30}) == L"30 / 60");  // override 30 on a 60 fps game
-    CHECK(gp::FpsCounterText({0, 0, 0}) == L"0 / 0");
+TEST_CASE("the FPS counter reads the presented rate, labelled") {
+    CHECK(gp::FpsCounterText({60, 30, 30, true}) == L"30 FPS");
+    CHECK(gp::FpsCounterText({60, 60, 60, true}) == L"60 FPS");
+    CHECK(gp::FpsCounterText({60, 60, 30, true}) == L"30 FPS");  // override 30 on a 60 fps game
+    CHECK(gp::FpsCounterText({0, 0, 0, true}) == L"0 FPS");
+}
+
+TEST_CASE("the FPS counter shows nothing while the rates warm up") {
+    CHECK(gp::FpsCounterText({12, 12, 6, false}) == L"");
+}
+
+TEST_CASE("rates warm up once a full window of frames has arrived") {
+    Feed feed;
+    CHECK_FALSE(feed.Rates().warm);
+    int picture = 0;
+    feed.Game(1, 2, picture);
+    CHECK_FALSE(feed.Rates().warm);
+    CHECK(gp::FpsCounterText(feed.Rates()) == L"");
+    feed.Game(1, 2, picture);
+    feed.Arrive(Picture(++picture));
+    CHECK(feed.Rates().warm);
+    CHECK(gp::FpsCounterText(feed.Rates()) == L"30 FPS");
+}
+
+TEST_CASE("after Reset (a feed restart) the rates warm up again") {
+    Feed feed;
+    int picture = 0;
+    feed.Game(3, 2, picture);
+    REQUIRE(feed.Rates().warm);
+    feed.processor.Reset();
+    feed.now += 3 * kTicksPerSecond;  // the restart takes a while
+    CHECK_FALSE(feed.Rates().warm);
+    feed.Game(1, 2, picture);
+    CHECK_FALSE(feed.Rates().warm);
+    feed.Game(2, 2, picture);
+    CHECK(feed.Rates().warm);
+    CHECK(gp::FpsCounterText(feed.Rates()) == L"30 FPS");
 }
 
 TEST_CASE("rates: Auto presents the Game Rate, so the counter agrees with it") {
@@ -359,10 +391,10 @@ TEST_CASE("rates: Auto presents the Game Rate, so the counter agrees with it") {
     const gp::FrameRates rates = feed.Rates();
     CHECK(rates.gameRate == 30);
     CHECK(rates.presentedRate == 30);
-    CHECK(gp::FpsCounterText(rates) == L"30 / 60");
+    CHECK(gp::FpsCounterText(rates) == L"30 FPS");
 }
 
-TEST_CASE("override 30 on a 60 fps game: Game Rate stays 60, the counter reads 30 / 60") {
+TEST_CASE("override 30 on a 60 fps game: Game Rate stays 60, the counter reads 30 FPS") {
     Feed feed;
     feed.processor.SetOverride(GameRateOverride::Fps30);
     int picture = 0;
@@ -371,10 +403,10 @@ TEST_CASE("override 30 on a 60 fps game: Game Rate stays 60, the counter reads 3
     CHECK(rates.signalRate == 60);
     CHECK(rates.gameRate == 60);
     CHECK(rates.presentedRate == 30);
-    CHECK(gp::FpsCounterText(rates) == L"30 / 60");
+    CHECK(gp::FpsCounterText(rates) == L"30 FPS");
 }
 
-TEST_CASE("override 60 on a doubled game: Game Rate stays 30, the counter reads 60 / 60") {
+TEST_CASE("override 60 on a doubled game: Game Rate stays 30, the counter reads 60 FPS") {
     Feed feed;
     feed.processor.SetOverride(GameRateOverride::Fps60);
     int picture = 0;
@@ -382,7 +414,7 @@ TEST_CASE("override 60 on a doubled game: Game Rate stays 30, the counter reads 
     const gp::FrameRates rates = feed.Rates();
     CHECK(rates.gameRate == 30);
     CHECK(rates.presentedRate == 60);
-    CHECK(gp::FpsCounterText(rates) == L"60 / 60");
+    CHECK(gp::FpsCounterText(rates) == L"60 FPS");
 }
 
 TEST_CASE("with tolerance zero the same noisy repeat is a Unique Frame") {

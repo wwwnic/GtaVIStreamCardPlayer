@@ -100,6 +100,10 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
     const int64_t arrival = captured->arrivalQpc;
     {
         std::lock_guard lock(mutex_);
+        if (warmPending_) {
+            warmPending_ = false;
+            warmFrom_ = arrival;
+        }
         history_[historyNext_] = {arrival, unique, emit};
         historyNext_ = (historyNext_ + 1) % kHistory;
         if (historyCount_ < kHistory) historyCount_++;
@@ -138,6 +142,8 @@ void UniqueFrameProcessor::Reset() {
     referenceShown_ = false;
     sinceEmitted_ = 2;
     recent_.clear();
+    std::lock_guard lock(mutex_);
+    warmPending_ = true;
 }
 
 FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
@@ -169,7 +175,8 @@ FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
     follow(shownSignal_, signal);
     follow(shownGame_, game);
     follow(shownPresented_, shown);
-    return {shownSignal_, shownGame_, shownPresented_};
+    const bool warm = !warmPending_ && nowTicks - warmFrom_ >= kRateWindowSeconds * ticksPerSecond_;
+    return {shownSignal_, shownGame_, shownPresented_, warm};
 }
 
 UniqueFrameTotals UniqueFrameProcessor::Totals() {
@@ -185,7 +192,8 @@ UniqueCloseness UniqueFrameProcessor::TakeCloseness() {
 }
 
 std::wstring FpsCounterText(FrameRates rates) {
-    return std::to_wstring(rates.presentedRate) + L" / " + std::to_wstring(rates.signalRate);
+    if (!rates.warm) return L"";
+    return std::to_wstring(rates.presentedRate) + L" FPS";
 }
 
 }  // namespace gp
