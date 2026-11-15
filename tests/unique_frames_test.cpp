@@ -53,6 +53,7 @@ struct Feed {
         std::vector<TimedFrame> out;
         processor.Process(frame, out);
         for (const TimedFrame& shown : out) emitted.push_back(shown.frame);
+        processor.AfterSubmit();
         return out.size();
     }
     // Each number is one arrival showing that picture.
@@ -317,6 +318,19 @@ TEST_CASE("after Reset the next frame is shown even if it repeats the last pictu
     feed.Arrive({1, 1});
     feed.processor.Reset();
     CHECK(feed.Arrive(Picture(1)) == 1);
+}
+
+TEST_CASE("exact only: how close a Unique Frame was is measured after it is handed on, not before") {
+    UniqueFrameProcessor processor(kTicksPerSecond, 0.0);
+    std::vector<TimedFrame> out;
+    processor.Process(Picture(1), out);
+    processor.AfterSubmit();
+    out.clear();
+    processor.Process(NoisyPicture(1, 3), out);
+    CHECK(out.size() == 1);
+    CHECK(processor.TakeCloseness().closeUnique == 0);  // not yet measured
+    processor.AfterSubmit();
+    CHECK(processor.TakeCloseness().closeUnique == 1);
 }
 
 TEST_CASE("the override is read from a command-line word") {

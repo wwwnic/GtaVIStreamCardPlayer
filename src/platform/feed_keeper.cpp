@@ -181,9 +181,10 @@ void FeedKeeper::LogFrames() {
     const uint32_t uniqueCount = timing_.uniqueCount.exchange(0), repeatCount = timing_.repeatCount.exchange(0);
     const int64_t uniqueTicks = timing_.uniqueTicks.exchange(0), repeatTicks = timing_.repeatTicks.exchange(0);
     const int64_t uniqueWorst = timing_.uniqueWorst.exchange(0), repeatWorst = timing_.repeatWorst.exchange(0);
+    const int64_t afterWorst = timing_.afterWorst.exchange(0);
     Log("Frames: arrived %llu, unique %llu, repeated exact %llu near %llu, presented %llu, dropped %llu; "
         "game rate %d, signal rate %d; override %s, tolerance %.4f; near max %.5f, close unique %u min %.5f; "
-        "compare ms unique avg %.3f worst %.3f, repeated avg %.3f worst %.3f",
+        "before present ms unique avg %.3f worst %.3f, repeated avg %.3f worst %.3f; after present worst %.3f",
         static_cast<unsigned long long>(now.arrived - was.arrived),
         static_cast<unsigned long long>(now.unique - was.unique),
         static_cast<unsigned long long>(now.repeatedExact - was.repeatedExact),
@@ -192,7 +193,7 @@ void FeedKeeper::LogFrames() {
         static_cast<unsigned long long>(now.dropped - was.dropped), rates.gameRate, rates.signalRate,
         NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
         close.closeUnique ? close.closeShareMin : 0.0, uniqueCount ? QpcToMs(uniqueTicks) / uniqueCount : 0.0,
-        QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst));
+        QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst), QpcToMs(afterWorst));
     loggedTotals_ = now;
 }
 
@@ -225,6 +226,9 @@ void FeedKeeper::RestartFeed() {
             processor_->Process(std::move(captured), toShow_);
             const int64_t spent = QpcNow() - began;
             for (TimedFrame& frame : toShow_) presenter_.Submit(std::move(frame));
+            const int64_t submitted = QpcNow();
+            processor_->AfterSubmit();
+            RaiseTo(timing_.afterWorst, QpcNow() - submitted);
             if (processor_->Totals().unique != uniqueBefore) {
                 timing_.uniqueTicks += spent;
                 timing_.uniqueCount++;
