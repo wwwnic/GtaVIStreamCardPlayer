@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 (App skeleton showing the Feed picture in a window).
 
-**Status:** needs-plan-review
+**Status:** ready-for-agent
 
-**Gate:** The plan review after ticket 01 has taken place, but this ticket waits for the user's two remaining hand tests on the prototype: a 30 fps game run through the prototype (are Repeated Frames bit-identical, and does the unique count read about 30?), and Lossless Scaling run on the prototype window. Their results may change this ticket. If its status still reads needs-plan-review, stop and ask the user rather than beginning work.
+**Gate outcome:** The user could not find a way to run a game at 30 fps, so bit-identical Repeated Frames at 30 fps remain unverified. This ticket is built with a tunable tolerance and diagnostic logging instead. The user will judge Lossless Scaling by taking a 60 fps game to 120 on their 144 Hz monitor (ticket 10).
 
 ## Context
 

@@ -9,12 +9,14 @@
 #include <objbase.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "core/audio_controls.h"
+#include "core/window_shape.h"
 #include "platform/feed_keeper.h"
 #include "platform/feedback.h"
 #include "platform/fullscreen.h"
@@ -28,13 +30,13 @@ namespace {
 // Lossless Scaling matches its profile on this exact title; do not change it.
 const wchar_t kWindowTitle[] = L"GamePlayer";
 const wchar_t kWindowClass[] = L"GamePlayerWindow";
-const int kDefaultVideoAreaWidth = 1280;
-const int kDefaultVideoAreaHeight = 720;
+const int kDefaultVideoAreaWidth = 1280;  // 16:9 (720 high), shrunk if the monitor is smaller
+const int kMinVideoAreaWidthAt96Dpi = 480;  // 270 high
 const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
-    explicit App(HWND window) : feedback(window), fullscreen(window), feed(window, presenter, sound) {}
+    explicit App(HWND window) : feedback(presenter), fullscreen(window), feed(window, presenter, sound) {}
     gp::Presenter presenter;
     gp::Sound sound;  // started and stopped by the FeedKeeper; its settings persist
     gp::Feedback feedback;
@@ -84,6 +86,61 @@ bool HandleAudioKey(App& app, WPARAM key, LPARAM flags) {
     return true;
 }
 
+// The window's frame: its size minus the Video Area (the client area). Includes
+// the borders, the title bar and a menu bar if there is one; measured, not assumed.
+SIZE FrameSize(HWND window) {
+    RECT outer = {}, client = {};
+    GetWindowRect(window, &outer);
+    GetClientRect(window, &client);
+    return {(outer.right - outer.left) - client.right, (outer.bottom - outer.top) - client.bottom};
+}
+
+int MinVideoAreaWidth(HWND window) {
+    const int width = MulDiv(kMinVideoAreaWidthAt96Dpi, static_cast<int>(GetDpiForWindow(window)), 96);
+    return (width + 15) / 16 * 16;  // whole 16:9 blocks
+}
+
+// WM_SIZING: while an edge or corner is dragged, keep the Video Area 16:9.
+void KeepShapeWhileSizing(HWND window, WPARAM edge, RECT* proposed) {
+    gp::SizingEdge sizing;
+    switch (edge) {
+    case WMSZ_LEFT: sizing = gp::SizingEdge::Left; break;
+    case WMSZ_RIGHT: sizing = gp::SizingEdge::Right; break;
+    case WMSZ_TOP: sizing = gp::SizingEdge::Top; break;
+    case WMSZ_BOTTOM: sizing = gp::SizingEdge::Bottom; break;
+    case WMSZ_TOPLEFT: sizing = gp::SizingEdge::TopLeft; break;
+    case WMSZ_TOPRIGHT: sizing = gp::SizingEdge::TopRight; break;
+    case WMSZ_BOTTOMLEFT: sizing = gp::SizingEdge::BottomLeft; break;
+    case WMSZ_BOTTOMRIGHT: sizing = gp::SizingEdge::BottomRight; break;
+    default: return;
+    }
+    const SIZE frame = FrameSize(window);
+    const gp::WindowRect shaped = gp::KeepVideoArea16x9({proposed->left, proposed->top, proposed->right, proposed->bottom},
+                                                        sizing, frame.cx, frame.cy, MinVideoAreaWidth(window));
+    *proposed = {shaped.left, shaped.top, shaped.right, shaped.bottom};
+}
+
+// Opening size: a 16:9 Video Area, kDefaultVideoAreaWidth wide or as much as
+// fits in 90% of the monitor's work area.
+void SetDefaultSize(HWND window) {
+    const SIZE frame = FrameSize(window);
+    const int frameW = static_cast<int>(frame.cx), frameH = static_cast<int>(frame.cy);
+    MONITORINFO monitor = {sizeof monitor};
+    GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitor);
+    const int workWidth = monitor.rcWork.right - monitor.rcWork.left;
+    const int workHeight = monitor.rcWork.bottom - monitor.rcWork.top;
+    int units = kDefaultVideoAreaWidth / 16;
+    units = std::min(units, (workWidth * 9 / 10 - frameW) / 16);
+    units = std::min(units, (workHeight * 9 / 10 - frameH) / 9);
+    units = std::max(units, MinVideoAreaWidth(window) / 16);
+    SetWindowPos(window, nullptr, 0, 0, units * 16 + frameW, units * 9 + frameH,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    RECT client = {};
+    GetClientRect(window, &client);
+    gp::Log("Window: opening Video Area %ldx%ld (frame %dx%d, minimum width %d)", client.right, client.bottom, frameW,
+            frameH, MinVideoAreaWidth(window));
+}
+
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     LRESULT handled = 0;
@@ -97,8 +154,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_KEYDOWN:
         if (app && HandleAudioKey(*app, wParam, lParam)) return 0;
         break;
-    case WM_MOVE:
-        if (app) app->feedback.VideoAreaMoved();
+    case WM_SIZING:
+        // Windowed drags only: maximised and fullscreen have no sizing border.
+        KeepShapeWhileSizing(window, wParam, reinterpret_cast<RECT*>(lParam));
+        return TRUE;
+    case WM_GETMINMAXINFO:
+        if (app) {
+            const SIZE frame = FrameSize(window);
+            const int width = MinVideoAreaWidth(window);
+            auto* limits = reinterpret_cast<MINMAXINFO*>(lParam);
+            limits->ptMinTrackSize = {width + frame.cx, width / 16 * 9 + frame.cy};
+            return 0;
+        }
         break;
     case WM_SYSCOMMAND:
         if (app && app->keepAwake.RefuseSysCommand(wParam)) return 0;
@@ -106,10 +173,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_SIZE:
         // Also arrives continuously while an edge is dragged; the Presenter
         // repaints on its own thread, so the picture keeps its shape during the drag.
-        if (app && wParam != SIZE_MINIMIZED) {
-            app->presenter.VideoAreaResized();
-            app->feedback.VideoAreaMoved();
-        }
+        // Snaps and programmatic sizes may give other shapes: black bars then.
+        if (app && wParam != SIZE_MINIMIZED) app->presenter.VideoAreaResized();
         return 0;
     case WM_TIMER:
         if (wParam == kStatsTimer && app) {
@@ -157,10 +222,13 @@ HWND CreateViewerWindow(HINSTANCE instance) {
     RegisterClassExW(&windowClass);
 
     const DWORD style = WS_OVERLAPPEDWINDOW;
-    RECT bounds = {0, 0, kDefaultVideoAreaWidth, kDefaultVideoAreaHeight};
-    AdjustWindowRectEx(&bounds, style, FALSE, 0);
-    return CreateWindowExW(0, kWindowClass, kWindowTitle, style, CW_USEDEFAULT, CW_USEDEFAULT,
-                           bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr, instance, nullptr);
+    RECT bounds = {0, 0, kDefaultVideoAreaWidth, kDefaultVideoAreaWidth / 16 * 9};
+    AdjustWindowRectEx(&bounds, style, FALSE, 0);  // a first guess; SetDefaultSize measures the real frame
+    HWND window = CreateWindowExW(0, kWindowClass, kWindowTitle, style, CW_USEDEFAULT, CW_USEDEFAULT,
+                                  bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr, instance,
+                                  nullptr);
+    if (window) SetDefaultSize(window);
+    return window;
 }
 
 }  // namespace

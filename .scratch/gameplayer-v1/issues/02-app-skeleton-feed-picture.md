@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Throwaway prototype proving the pipeline), and the plan review that follows it.
 
-**Status:** ready-for-agent
+**Status:** done (user hand checks pending)
 
 ## Context
 
