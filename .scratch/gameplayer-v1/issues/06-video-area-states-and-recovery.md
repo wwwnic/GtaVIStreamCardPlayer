@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (App skeleton showing the Feed picture in a window) and 03 (Feed sound).
 
-**Status:** ready-for-agent
+**Status:** done (user hand checks pending)
 
 ## Context
 
