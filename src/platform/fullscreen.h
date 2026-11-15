@@ -15,9 +15,10 @@ namespace gp {
 
 class Fullscreen {
 public:
-    explicit Fullscreen(HWND window) : window_(window) {}
+    explicit Fullscreen(HWND window);
 
-    // F11 toggles, Esc leaves, the cursor hides after 2 s still in fullscreen,
+    // F11 toggles, Esc leaves, the cursor hides after 2 s still (fullscreen:
+    // anywhere; windowed: over the Video Area only, core/cursor_idle.h),
     // WM_DISPLAYCHANGE keeps the monitor covered. Returns true when the
     // message was handled and *result is the answer.
     bool HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
@@ -41,6 +42,8 @@ private:
     void ShowChrome(bool shown);
     void Cover(const ScreenRect& bounds);
     void SetCursorShown(bool shown);
+    void ShowCursorAgain();
+    CursorPlace PlaceNow() const;
     void LogClientSize(const char* what);
     void ApplyTopmost(bool topmost);
 
@@ -52,6 +55,8 @@ private:
     LONG_PTR savedStyle_ = 0;
     std::wstring monitorName_;  // the monitor being covered
     CursorIdle cursor_;
+    bool menuOpen_ = false;
+    bool movingOrSizing_ = false;
 };
 
 }  // namespace gp
