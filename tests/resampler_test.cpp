@@ -71,6 +71,22 @@ TEST_CASE("a slightly sped-up tone stays a clean tone") {
     CHECK(worst < 0.001);
 }
 
+TEST_CASE("a large step (48 kHz to 8 kHz) asks for all the input it skips, period after period") {
+    Resampler resampler;
+    size_t used = 0;
+    const auto out = Run(resampler, 6.0, 800, 80, [](size_t n) { return static_cast<float>(n) * 0.001f; }, &used);
+    for (size_t k = 0; k < 800; k++) CHECK(out[2 * k] == doctest::Approx(k * 6 * 0.001));
+    CHECK(std::fabs(static_cast<double>(used) - 800 * 6.0) < 8.0);
+}
+
+TEST_CASE("a large uneven step (48 kHz to 11.025 kHz) consumes input at exactly its step") {
+    Resampler resampler;
+    size_t used = 0;
+    const double step = 48000.0 / 11025.0;
+    Run(resampler, step, 11000, 110, [](size_t) { return 0.0f; }, &used);
+    CHECK(std::fabs(static_cast<double>(used) - 11000 * step) < 8.0);
+}
+
 TEST_CASE("after a reset the resampler starts a fresh stream") {
     Resampler resampler;
     Run(resampler, 0.9, 100, 10, [](size_t) { return 1.0f; });

@@ -1,5 +1,6 @@
 #include "core/resampler.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace gp {
@@ -14,7 +15,11 @@ void Resampler::Reset() {
 size_t Resampler::InputNeeded(size_t outFrames, double step) const {
     if (outFrames == 0) return 0;
     const double last = position_ + static_cast<double>(outFrames - 1) * step;
-    const size_t required = static_cast<size_t>(std::floor(last)) + 3;
+    // The last output frame's four points, and (for a step above 4, such as
+    // 48 kHz to 8 kHz) the frames skipped on the way to the next period, so
+    // that one frame before the next position is always kept.
+    const double next = position_ + static_cast<double>(outFrames) * step;
+    const size_t required = std::max(static_cast<size_t>(std::floor(last)) + 3, static_cast<size_t>(std::floor(next)));
     const size_t have = pending_.size() / 2;
     return required > have ? required - have : 0;
 }

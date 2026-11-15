@@ -183,20 +183,37 @@ std::unique_ptr<Stream> OpenStream(IMMDevice* device, const char* side) {
     return stream;
 }
 
-// Real-time priority for the two audio threads.
+// COM for one of the sound threads, left again only if it was entered.
+class ComScope {
+public:
+    ComScope() : entered_(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {}
+    ~ComScope() {
+        if (entered_) CoUninitialize();
+    }
+    ComScope(const ComScope&) = delete;
+    ComScope& operator=(const ComScope&) = delete;
+
+private:
+    bool entered_;
+};
+
+// Real-time priority for the two audio threads. Says so once, when the
+// thread starts, if Windows refuses it (a clue for glitches).
 class AudioThreadScope {
 public:
-    AudioThreadScope() {
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    explicit AudioThreadScope(const char* side) {
         DWORD task = 0;
         mmcss_ = AvSetMmThreadCharacteristicsW(L"Pro Audio", &task);
+        if (!mmcss_) Log("Sound: %s thread runs without \"Pro Audio\" priority (error %lu)", side, GetLastError());
     }
     ~AudioThreadScope() {
         if (mmcss_) AvRevertMmThreadCharacteristics(mmcss_);
-        CoUninitialize();
     }
+    AudioThreadScope(const AudioThreadScope&) = delete;
+    AudioThreadScope& operator=(const AudioThreadScope&) = delete;
 
 private:
+    ComScope com_;
     HANDLE mmcss_ = nullptr;
 };
 
@@ -298,10 +315,8 @@ struct Sound::Impl {
         return names[choice->index];
     }
 
-    void CaptureLoop() {
-        AudioThreadScope scope;
-        ComPtr<IAudioCaptureClient> service;
-        capture->client->GetService(IID_PPV_ARGS(&service));
+    void CaptureLoop(ComPtr<IAudioCaptureClient> service) {
+        AudioThreadScope scope("capture");
         const PcmFormat format = capture->format;
         std::vector<float> stereo(2 * capture->bufferFrames);
         while (capturing) {
@@ -366,7 +381,7 @@ struct Sound::Impl {
     }
 
     void RenderLoop(ComPtr<IAudioRenderClient> service) {
-        AudioThreadScope scope;
+        AudioThreadScope scope("output");
         std::vector<float> stereo(2 * render->bufferFrames);
         while (rendering) {
             WaitForSingleObject(render->event, 200);
@@ -448,9 +463,10 @@ struct Sound::Impl {
     }
 
     void ControlLoop() {
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        ComScope com;
         ULONGLONG lastStats = GetTickCount64();
         ULONGLONG lastRetry = lastStats;
+        ULONGLONG lastLook = lastStats;
         int statsLogged = 0;
         const HANDLE events[] = {stop, wake};
         for (;;) {
@@ -459,9 +475,14 @@ struct Sound::Impl {
             const ULONGLONG now = GetTickCount64();
             if (woke == WAIT_OBJECT_0 + 1) {
                 FollowDefaultOutput();
-            } else if (!render && now - lastRetry >= 2000) {
-                lastRetry = now;
-                OpenRender();  // the default output was missing; try again
+            } else if (!render) {
+                if (now - lastRetry >= 2000) {
+                    lastRetry = now;
+                    OpenRender();  // the default output was missing; try again
+                }
+            } else if (!watcher && now - lastLook >= 2000) {
+                lastLook = now;
+                FollowDefaultOutput();  // no notifications: look for a change ourselves
             }
             const ULONGLONG interval = statsLogged < 10 ? 1000 : 60000;
             if (now - lastStats >= interval) {
@@ -470,7 +491,6 @@ struct Sound::Impl {
                 statsLogged++;
             }
         }
-        CoUninitialize();
     }
 };
 
@@ -491,6 +511,14 @@ bool Sound::Start(const std::wstring& cardName) {
     impl->capture = OpenStream(device.Get(), "capture");
     if (!impl->capture) {
         Log("Sound: the capture endpoint could not be opened; no sound");
+        return false;
+    }
+    // Taken here, not on the capture thread: the endpoint can vanish at any
+    // moment, and a thread without the service has nothing to call.
+    ComPtr<IAudioCaptureClient> captureService;
+    hr = impl->capture->client->GetService(IID_PPV_ARGS(&captureService));
+    if (FAILED(hr) || !captureService) {
+        Log("Sound: capture GetService failed hr=0x%08lX; no sound", Hex(hr));
         return false;
     }
     // The output rate is a placeholder until an output device is open.
@@ -518,7 +546,7 @@ bool Sound::Start(const std::wstring& cardName) {
     }
     impl->capturing = true;
     Impl* raw = impl.get();
-    impl->captureThread = std::thread([raw] { raw->CaptureLoop(); });
+    impl->captureThread = std::thread([raw, captureService] { raw->CaptureLoop(captureService); });
     impl->controlThread = std::thread([raw] { raw->ControlLoop(); });
     impl_ = std::move(impl);
     return true;
