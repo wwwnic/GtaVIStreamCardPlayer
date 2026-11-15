@@ -33,8 +33,46 @@ std::vector<Monitor> ListMonitors() {
 
 }  // namespace
 
+Fullscreen::Fullscreen(HWND window) : window_(window) {
+    // The cursor hides windowed too (over a still Video Area), so this always runs.
+    SetTimer(window_, kCursorTimer, kCursorTimerMs, nullptr);
+}
+
+CursorPlace Fullscreen::PlaceNow() const {
+    CursorPlace place;
+    POINT at;
+    GetCursorPos(&at);
+    if (WindowFromPoint(at) == window_) {
+        POINT inside = at;
+        ScreenToClient(window_, &inside);
+        RECT client;
+        GetClientRect(window_, &client);
+        place.overVideoArea = PtInRect(&client, inside) != FALSE;
+    }
+    place.windowActive = GetForegroundWindow() == window_;
+    place.menuOpen = menuOpen_;
+    place.movingOrSizing = movingOrSizing_;
+    return place;
+}
+
 bool Fullscreen::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result) {
     switch (message) {
+    case WM_ENTERMENULOOP:
+    case WM_EXITMENULOOP:
+        menuOpen_ = message == WM_ENTERMENULOOP;
+        if (menuOpen_) ShowCursorAgain();
+        return false;  // main.cpp logs these
+    case WM_ENTERSIZEMOVE:
+    case WM_EXITSIZEMOVE:
+        movingOrSizing_ = message == WM_ENTERSIZEMOVE;
+        if (movingOrSizing_) ShowCursorAgain();
+        return false;
+    case WM_NCMOUSEMOVE: {  // over the title bar, menu bar or a border
+        POINT at;
+        GetCursorPos(&at);
+        cursor_.MouseAt(at.x, at.y, NowMs());
+        return false;
+    }
     case WM_KEYDOWN: {
         const bool repeat = (lParam & (1 << 30)) != 0;  // key held down
         if (wParam == VK_F11) {
@@ -63,13 +101,14 @@ bool Fullscreen::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESU
         }
         return false;
     case WM_TIMER:
+    {
         if (wParam != kCursorTimer) return false;
-        if (!cursor_.Hidden()) {
-            cursor_.Tick(NowMs());
-            if (cursor_.Hidden()) SetCursorShown(false);
-        }
+        const bool wasHidden = cursor_.Hidden();
+        cursor_.Tick(NowMs(), PlaceNow());
+        if (cursor_.Hidden() != wasHidden) SetCursorShown(!cursor_.Hidden());
         *result = 0;
         return true;
+    }
     case WM_DISPLAYCHANGE:
         DisplayChanged();
         return false;
@@ -103,7 +142,6 @@ void Fullscreen::Enter() {
     ShowChrome(false);
     Cover(monitor.bounds);
     cursor_.SetFullscreen(true, NowMs());
-    SetTimer(window_, kCursorTimer, kCursorTimerMs, nullptr);
     Log("Fullscreen: on, monitor %s (%d of %zu) at %d,%d %dx%d%s", ToUtf8(monitor.name).c_str(), static_cast<int>(*target) + 1,
         monitors.size(), monitor.bounds.left, monitor.bounds.top, monitor.bounds.right - monitor.bounds.left,
         monitor.bounds.bottom - monitor.bounds.top, saved_.showCmd == SW_SHOWMAXIMIZED ? ", was maximised" : "");
@@ -113,7 +151,6 @@ void Fullscreen::Enter() {
 void Fullscreen::Leave() {
     if (!on_) return;
     on_ = false;
-    KillTimer(window_, kCursorTimer);
     cursor_.SetFullscreen(false, NowMs());
     SetCursorShown(true);
     ShowChrome(true);
@@ -178,11 +215,18 @@ void Fullscreen::Cover(const ScreenRect& bounds) {
 
 // WM_SETCURSOR keeps the cursor as chosen; this changes it at once when the
 // mouse is over the window, instead of at the next mouse message.
+// Only over the Video Area: elsewhere (borders, title bar, other windows)
+// Windows picks the right cursor itself.
 void Fullscreen::SetCursorShown(bool shown) {
-    POINT at;
-    GetCursorPos(&at);
-    if (WindowFromPoint(at) != window_) return;
+    if (!PlaceNow().overVideoArea) return;
     SetCursor(shown ? LoadCursorW(nullptr, IDC_ARROW) : nullptr);
+}
+
+// A menu opened or a drag began: shown at once, not at the next tick.
+void Fullscreen::ShowCursorAgain() {
+    if (!cursor_.Hidden() || on_) return;
+    cursor_.Tick(NowMs(), PlaceNow());
+    if (!cursor_.Hidden()) SetCursorShown(true);
 }
 
 void Fullscreen::LogClientSize(const char* what) {

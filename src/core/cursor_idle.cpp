@@ -15,8 +15,15 @@ void CursorIdle::MouseAt(int x, int y, int64_t nowMs) {
     hidden_ = false;
 }
 
-void CursorIdle::Tick(int64_t nowMs) {
-    if (fullscreen_ && nowMs - lastMoveMs_ >= kHideAfterMs) hidden_ = true;
+void CursorIdle::Tick(int64_t nowMs, const CursorPlace& place) {
+    const bool mayHide =
+        fullscreen_ || (place.overVideoArea && place.windowActive && !place.menuOpen && !place.movingOrSizing);
+    if (!mayHide) {  // shown, and the 2 seconds start again once hiding is allowed
+        hidden_ = false;
+        lastMoveMs_ = nowMs;
+        return;
+    }
+    if (nowMs - lastMoveMs_ >= kHideAfterMs) hidden_ = true;
 }
 
 }  // namespace gp
