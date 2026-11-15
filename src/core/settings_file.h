@@ -43,16 +43,31 @@ public:
     // so a damaged or older file is replaced soon after launch.
     explicit SettingsSaveTiming(std::string onDisk) : onDisk_(std::move(onDisk)) {}
 
-    // True when `now` differs from the file and was the same a second ago.
+    // A write that failed is not retried every second (each try flushes to
+    // disk on the window thread): the same text again after this long.
+    static constexpr int kRetrySeconds = 30;
+
+    // True when `now` differs from the file and was the same a second ago,
+    // unless writing this same text failed less than kRetrySeconds ago.
     bool Second(const std::string& now);
-    // At exit: true when `now` differs from the file.
+    // At exit: true when `now` differs from the file (tried even after a failure).
     bool Differs(const std::string& now) const { return now != onDisk_; }
     // After a successful write.
-    void Written(const std::string& text) { onDisk_ = text; }
+    void Written(const std::string& text) {
+        onDisk_ = text;
+        failed_.reset();
+    }
+    // After a failed write.
+    void Failed(const std::string& text) {
+        failed_ = text;
+        secondsSinceFailure_ = 0;
+    }
 
 private:
     std::string onDisk_;
     std::optional<std::string> previous_;
+    std::optional<std::string> failed_;
+    int secondsSinceFailure_ = 0;
 };
 
 }  // namespace gp

@@ -28,8 +28,9 @@ WindowRect KeepVideoArea16x9(WindowRect proposed, SizingEdge edge, int frameWidt
                              int minVideoAreaWidth);
 
 // Start-up (ticket 09): the window rectangle to reopen at from a remembered
-// one. Shaped like a right-edge drag (16:9 from the width, top-left kept),
-// then kept only if it lies fully on one of `monitors` (their full
+// one. Its size is kept as it was, 16:9 or not (a snap); only a Video Area
+// below the minimum is shaped like a right-edge drag to the minimum (top-left
+// kept). Then kept only if it lies fully on one of `monitors` (their full
 // rectangles), give or take `slack` pixels on each side. Empty: the monitor
 // is gone or the window would be off-screen; use the default instead.
 std::optional<WindowRect> RestoredWindowRect(WindowRect saved, std::span<const WindowRect> monitors, int frameWidth,

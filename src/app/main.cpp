@@ -121,9 +121,10 @@ void ToggleFpsCounter(App& app, const char* from) {
 // Every setting at once: at launch, after loading the remembered ones.
 void ApplyAllSettings(App& app) {
     const gp::ViewerSettings& s = app.settings;
-    if (app.sound.Volume() != s.audio.volumePercent) app.sound.SetVolume(s.audio.volumePercent);
-    if (app.sound.Muted() != s.audio.muted) app.sound.SetMuted(s.audio.muted);
-    if (app.sound.AudioDelayMs() != s.audio.audioDelayMs) app.sound.SetAudioDelayMs(s.audio.audioDelayMs);
+    if (app.sound.Volume() != s.audio.volumePercent || app.sound.Muted() != s.audio.muted ||
+        app.sound.AudioDelayMs() != s.audio.audioDelayMs) {
+        app.sound.SetAudio(s.audio);  // all three in one step, one log line
+    }
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
     app.presenter.SetVsync(s.vsync);
     if (s.fpsCounter) app.feed.SetFpsCounter(true);  // with the first frame, no present of its own
@@ -339,13 +340,17 @@ void LearnCaptureCardId(App& app) {
 }
 
 void WriteSettings(App& app, const std::string& text, const char* why) {
-    if (gp::WriteSettingsFile(app.settingsPath, text)) {
+    unsigned long error = 0;
+    if (gp::WriteSettingsFile(app.settingsPath, text, error)) {
         app.saveTiming.Written(text);
         app.saveFailureLogged = false;
         gp::Log("Settings: saved (%s)", why);
-    } else if (!app.saveFailureLogged) {
-        app.saveFailureLogged = true;  // retried each second, logged once
-        gp::Log("Settings: could not save to %s (error %lu)", gp::ToUtf8(app.settingsPath).c_str(), GetLastError());
+        return;
+    }
+    app.saveTiming.Failed(text);  // tried again after a while, on the next change, and at exit
+    if (!app.saveFailureLogged) {
+        app.saveFailureLogged = true;  // logged once
+        gp::Log("Settings: could not save to %s (error %lu)", gp::ToUtf8(app.settingsPath).c_str(), error);
     }
 }
 
@@ -389,14 +394,14 @@ BOOL CALLBACK AddMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM list) {
     return TRUE;
 }
 
-// Puts the window where it was, if that is still fully on a connected
-// monitor, with a 16:9 Video Area. Otherwise it keeps the default size,
-// centred on the primary monitor. Before the window is shown.
-void RestoreWindow(HWND window, const gp::SavedWindow& saved) {
+// Puts the window where it was, at the size it had (a snap stays its shape),
+// if that is still fully on a connected monitor; true then. Otherwise it keeps
+// the default size, centred on the primary monitor. Before the window is shown.
+bool RestoreWindow(HWND window, const gp::SavedWindow& saved) {
     std::vector<gp::WindowRect> monitors;
     EnumDisplayMonitors(nullptr, nullptr, AddMonitor, reinterpret_cast<LPARAM>(&monitors));
     const int slack = MulDiv(10, static_cast<int>(GetDpiForWindow(window)), 96);  // the invisible resize border
-    SIZE frame = FrameSize(window);
+    const SIZE frame = FrameSize(window);
     const std::optional<gp::WindowRect> rect =
         gp::RestoredWindowRect(saved.normal, monitors, frame.cx, frame.cy, MinVideoAreaWidth(window), slack);
     if (!rect) {
@@ -411,24 +416,18 @@ void RestoreWindow(HWND window, const gp::SavedWindow& saved) {
         gp::Log("Window: remembered position %d,%d is not fully on a connected monitor (%zu); default size on the "
                 "primary monitor",
                 saved.normal.left, saved.normal.top, monitors.size());
-        return;
+        return false;
     }
+    // The outer size as saved: on its own monitor the frame is the one it had
+    // then, so a 16:9 Video Area comes back 16:9.
     SetWindowPos(window, nullptr, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
-    // On a monitor with another scale the frame has changed: shape again.
-    frame = FrameSize(window);
-    RECT placed = {};
+    RECT placed = {}, client = {};
     GetWindowRect(window, &placed);
-    const gp::WindowRect shaped =
-        gp::KeepVideoArea16x9(FromRect(placed), gp::SizingEdge::Right, frame.cx, frame.cy, MinVideoAreaWidth(window));
-    if (!(shaped == FromRect(placed))) {
-        SetWindowPos(window, nullptr, shaped.left, shaped.top, shaped.right - shaped.left, shaped.bottom - shaped.top,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-    RECT client = {};
     GetClientRect(window, &client);
-    gp::Log("Window: remembered position %d,%d, Video Area %ldx%ld%s", shaped.left, shaped.top, client.right,
+    gp::Log("Window: remembered position %ld,%ld, Video Area %ldx%ld%s", placed.left, placed.top, client.right,
             client.bottom, saved.maximised ? ", maximised" : "");
+    return true;
 }
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -594,9 +593,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         return 1;
     }
     // Always windowed at launch, even if it was closed in fullscreen.
-    if (loaded.window) RestoreWindow(window, *loaded.window);
-    const bool openMaximised = loaded.window && loaded.window->maximised && showCommand != SW_SHOWMINIMIZED &&
-                               showCommand != SW_SHOWMINNOACTIVE && showCommand != SW_MINIMIZE;
+    // A position that could not be restored gives the whole default: not maximised either.
+    const bool restored = loaded.window && RestoreWindow(window, *loaded.window);
+    const bool maximised = restored && loaded.window->maximised;
+    const bool startMinimised =
+        showCommand == SW_SHOWMINIMIZED || showCommand == SW_SHOWMINNOACTIVE || showCommand == SW_MINIMIZE;
 
     {
         App app(window, menuBar, arguments.tolerance, settingsPath, settingsOnDisk);
@@ -616,7 +617,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         app.feed.Start();  // shows Loading, then the Feed or why not; recovers by itself
         app.keepAwake.Start(window);  // logs display on / off
 
-        ShowWindow(window, openMaximised ? SW_SHOWMAXIMIZED : showCommand);
+        if (maximised && startMinimised) {
+            // Started minimised (a shortcut set so): it restores to maximised,
+            // and the next save still says maximised.
+            WINDOWPLACEMENT placement = {sizeof placement};
+            GetWindowPlacement(window, &placement);
+            placement.flags |= WPF_RESTORETOMAXIMIZED;
+            placement.showCmd = SW_SHOWMINIMIZED;
+            SetWindowPlacement(window, &placement);
+        } else {
+            ShowWindow(window, maximised ? SW_SHOWMAXIMIZED : showCommand);
+        }
         SetTimer(window, kStatsTimer, 1000, nullptr);
         if (runSeconds) SetTimer(window, kRunTimer, static_cast<UINT>(runSeconds) * 1000, nullptr);
 

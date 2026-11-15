@@ -57,7 +57,8 @@ std::optional<std::wstring> WideOf(std::string_view text) {
             if ((next & 0xC0) != 0x80) return std::nullopt;
             c = (c << 6) | (next & 0x3F);
         }
-        if (c > 0x10FFFF || (c >= 0xD800 && c < 0xE000)) return std::nullopt;
+        static constexpr uint32_t kShortestFrom[] = {0, 0x80, 0x800, 0x10000};  // shorter forms are overlong
+        if (c < kShortestFrom[extra] || c > 0x10FFFF || (c >= 0xD800 && c < 0xE000)) return std::nullopt;
         if (c >= 0x10000) {
             c -= 0x10000;
             out += static_cast<wchar_t>(0xD800 + (c >> 10));
@@ -213,7 +214,9 @@ RememberedSettings SettingsFromText(std::string_view text) {
 bool SettingsSaveTiming::Second(const std::string& now) {
     const bool settled = previous_ && *previous_ == now;
     previous_ = now;
-    return settled && now != onDisk_;
+    if (!settled || now == onDisk_) return false;
+    if (failed_ && *failed_ == now && ++secondsSinceFailure_ < kRetrySeconds) return false;
+    return true;
 }
 
 }  // namespace gp
