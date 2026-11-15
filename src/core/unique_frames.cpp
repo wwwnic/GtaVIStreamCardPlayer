@@ -100,7 +100,7 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
     const int64_t arrival = captured->arrivalQpc;
     {
         std::lock_guard lock(mutex_);
-        history_[historyNext_] = {arrival, unique};
+        history_[historyNext_] = {arrival, unique, emit};
         historyNext_ = (historyNext_ + 1) % kHistory;
         if (historyCount_ < kHistory) historyCount_++;
         totals_.arrived++;
@@ -143,7 +143,7 @@ void UniqueFrameProcessor::Reset() {
 FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
     std::lock_guard lock(mutex_);
     const int64_t from = nowTicks - kRateWindowSeconds * ticksPerSecond_;
-    size_t n = 0, uniques = 0;
+    size_t n = 0, uniques = 0, presented = 0;
     int64_t first = 0, last = 0;
     for (size_t i = 0; i < historyCount_; i++) {
         const Arrival& a = history_[(historyNext_ + kHistory - 1 - i) % kHistory];  // newest first
@@ -152,6 +152,7 @@ FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
         first = a.ticks;
         n++;
         if (a.unique) uniques++;
+        if (a.presented) presented++;
     }
     double signal = 0;
     if (n >= 2 && last > first) {
@@ -160,13 +161,15 @@ FrameRates UniqueFrameProcessor::RatesAt(int64_t nowTicks) {
         signal = static_cast<double>(n) / kRateWindowSeconds;
     }
     const double game = n ? signal * static_cast<double>(uniques) / static_cast<double>(n) : 0.0;
+    const double shown = n ? signal * static_cast<double>(presented) / static_cast<double>(n) : 0.0;
     // A change under one frame per second is jitter of the window, not of the game.
     auto follow = [](int& shown, double raw) {
         if (std::abs(raw - shown) >= 1.0 || (raw < 0.5 && shown != 0)) shown = static_cast<int>(std::lround(raw));
     };
     follow(shownSignal_, signal);
     follow(shownGame_, game);
-    return {shownSignal_, shownGame_};
+    follow(shownPresented_, shown);
+    return {shownSignal_, shownGame_, shownPresented_};
 }
 
 UniqueFrameTotals UniqueFrameProcessor::Totals() {
@@ -182,7 +185,7 @@ UniqueCloseness UniqueFrameProcessor::TakeCloseness() {
 }
 
 std::wstring FpsCounterText(FrameRates rates) {
-    return std::to_wstring(rates.gameRate) + L" / " + std::to_wstring(rates.signalRate);
+    return std::to_wstring(rates.presentedRate) + L" / " + std::to_wstring(rates.signalRate);
 }
 
 }  // namespace gp

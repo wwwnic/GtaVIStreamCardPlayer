@@ -156,6 +156,22 @@ TEST_CASE("About shows name, version, device, capture mode, Signal Rate and Game
     CHECK(Contains(text, L"Game Rate: 30"));
 }
 
+TEST_CASE("About on Auto does not add a shown rate") {
+    gp::AboutInfo info;
+    info.rates = {60, 30, 30};
+    CHECK_FALSE(Contains(gp::AboutText(info), L"Shown"));
+}
+
+TEST_CASE("About with a Frame rate override keeps the detected Game Rate and says what is shown") {
+    gp::AboutInfo info;
+    info.rates = {60, 60, 30};
+    info.frameRate = gp::GameRateOverride::Fps30;
+    const std::wstring text = gp::AboutText(info);
+    CHECK(Contains(text, L"Signal Rate: 60"));
+    CHECK(Contains(text, L"Game Rate: 60"));
+    CHECK(Contains(text, L"Shown: 30 fps (Frame rate set to 30)"));
+}
+
 TEST_CASE("About says so when no card or mode is in use") {
     const std::wstring text = gp::AboutText(gp::AboutInfo{});
     CHECK(Contains(text, L"Capture Card: none"));

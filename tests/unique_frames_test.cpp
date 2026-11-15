@@ -345,10 +345,44 @@ TEST_CASE("the override is read from a command-line word") {
     CHECK(setting == GameRateOverride::Auto);
 }
 
-TEST_CASE("the FPS counter reads Game Rate / Signal Rate") {
-    CHECK(gp::FpsCounterText({60, 30}) == L"30 / 60");
-    CHECK(gp::FpsCounterText({60, 60}) == L"60 / 60");
-    CHECK(gp::FpsCounterText({0, 0}) == L"0 / 0");
+TEST_CASE("the FPS counter reads presented rate / Signal Rate") {
+    CHECK(gp::FpsCounterText({60, 30, 30}) == L"30 / 60");
+    CHECK(gp::FpsCounterText({60, 60, 60}) == L"60 / 60");
+    CHECK(gp::FpsCounterText({60, 60, 30}) == L"30 / 60");  // override 30 on a 60 fps game
+    CHECK(gp::FpsCounterText({0, 0, 0}) == L"0 / 0");
+}
+
+TEST_CASE("rates: Auto presents the Game Rate, so the counter agrees with it") {
+    Feed feed;
+    int picture = 0;
+    feed.Game(3, 2, picture);
+    const gp::FrameRates rates = feed.Rates();
+    CHECK(rates.gameRate == 30);
+    CHECK(rates.presentedRate == 30);
+    CHECK(gp::FpsCounterText(rates) == L"30 / 60");
+}
+
+TEST_CASE("override 30 on a 60 fps game: Game Rate stays 60, the counter reads 30 / 60") {
+    Feed feed;
+    feed.processor.SetOverride(GameRateOverride::Fps30);
+    int picture = 0;
+    feed.Game(3, 1, picture);
+    const gp::FrameRates rates = feed.Rates();
+    CHECK(rates.signalRate == 60);
+    CHECK(rates.gameRate == 60);
+    CHECK(rates.presentedRate == 30);
+    CHECK(gp::FpsCounterText(rates) == L"30 / 60");
+}
+
+TEST_CASE("override 60 on a doubled game: Game Rate stays 30, the counter reads 60 / 60") {
+    Feed feed;
+    feed.processor.SetOverride(GameRateOverride::Fps60);
+    int picture = 0;
+    feed.Game(3, 2, picture);
+    const gp::FrameRates rates = feed.Rates();
+    CHECK(rates.gameRate == 30);
+    CHECK(rates.presentedRate == 60);
+    CHECK(gp::FpsCounterText(rates) == L"60 / 60");
 }
 
 TEST_CASE("with tolerance zero the same noisy repeat is a Unique Frame") {
