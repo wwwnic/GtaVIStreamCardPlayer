@@ -155,6 +155,21 @@ void VideoAreaStateMachine::DevicesChanged(int64_t nowMs) {
     RetryAt(nowMs + kDeviceSettleMs);
 }
 
+RecoveryActions VideoAreaStateMachine::ChoiceChanged(int64_t) {
+    state_ = VideoAreaState::Loading;
+    openedAtMs_.reset();
+    lastUnexpected_.reset();
+    retryAtMs_.reset();
+    RecoveryActions actions;
+    actions.restartFeed = true;
+    return actions;
+}
+
+bool ChosenModeFailed(const SourceEvent& event) {
+    if (event.kind != SourceEvent::Kind::Failed || IsCardBusy(event.code)) return false;
+    return event.stage == SourceStage::Mode || event.stage == SourceStage::FirstRead;
+}
+
 RecoveryActions VideoAreaStateMachine::Tick(int64_t nowMs) {
     RecoveryActions actions;
     if (openedAtMs_ && nowMs - *openedAtMs_ >= kNoFramesMs) {

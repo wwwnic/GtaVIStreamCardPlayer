@@ -6,6 +6,8 @@
 // --rate auto|30|60   the Game Rate override (default auto).
 // Keys: F11 toggles borderless fullscreen, Esc leaves it. Up / Down volume,
 // M mute, J / K Audio Delay (sound earlier / later). F the FPS counter.
+// The menu bar (windowed only) overrides the automatic choices; all its
+// settings live in App::settings.
 #include <windows.h>
 
 #include <objbase.h>
@@ -18,12 +20,15 @@
 #include <vector>
 
 #include "core/audio_controls.h"
+#include "core/menu_model.h"
+#include "core/viewer_settings.h"
 #include "core/window_shape.h"
 #include "platform/feed_keeper.h"
 #include "platform/feedback.h"
 #include "platform/fullscreen.h"
 #include "platform/keep_awake.h"
 #include "platform/log.h"
+#include "platform/menu_bar.h"
 #include "platform/presenter.h"
 #include "platform/single_instance.h"
 
@@ -38,8 +43,11 @@ const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
 struct App {
-    App(HWND window, double tolerance)
-        : feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
+    App(HWND window, gp::MenuBar& menuBar, double tolerance)
+        : window(window), menu(menuBar), feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
+    HWND window;
+    gp::MenuBar& menu;
+    gp::ViewerSettings settings;  // every menu override (ticket 09 saves and loads it)
     gp::Presenter presenter;
     gp::Sound sound;  // started and stopped by the FeedKeeper; its settings persist
     gp::Feedback feedback;
@@ -63,6 +71,18 @@ void LogStats(App& app) {
     app.secondsSinceStats = 0;
 }
 
+// A key or the Audio menu: the settings change, the sound follows, the line shows.
+void PressAudio(App& app, gp::AudioKey audioKey, const char* from) {
+    const gp::AudioSettings now = app.settings.audio;
+    const gp::AudioKeyResult pressed = gp::PressAudioKey(now, audioKey);
+    if (pressed.settings.muted != now.muted) app.sound.SetMuted(pressed.settings.muted);
+    if (pressed.settings.volumePercent != now.volumePercent) app.sound.SetVolume(pressed.settings.volumePercent);
+    if (pressed.settings.audioDelayMs != now.audioDelayMs) app.sound.SetAudioDelayMs(pressed.settings.audioDelayMs);
+    app.settings.audio = pressed.settings;
+    gp::Log("%s: %s", from, pressed.feedback.c_str());
+    app.feedback.Show(pressed.feedback);
+}
+
 // Up, Down, M, J, K. Only arrive while the window has focus (both modes).
 bool HandleAudioKey(App& app, WPARAM key, LPARAM flags) {
     gp::AudioKey audioKey;
@@ -76,17 +96,101 @@ bool HandleAudioKey(App& app, WPARAM key, LPARAM flags) {
     }
     const bool repeat = (flags & (1 << 30)) != 0;
     if (repeat && audioKey == gp::AudioKey::ToggleMute) return true;  // held M toggles once
-    gp::AudioSettings now;
-    now.volumePercent = app.sound.Volume();
-    now.muted = app.sound.Muted();
-    now.audioDelayMs = app.sound.AudioDelayMs();
-    const gp::AudioKeyResult pressed = gp::PressAudioKey(now, audioKey);
-    if (pressed.settings.muted != now.muted) app.sound.SetMuted(pressed.settings.muted);
-    if (pressed.settings.volumePercent != now.volumePercent) app.sound.SetVolume(pressed.settings.volumePercent);
-    if (pressed.settings.audioDelayMs != now.audioDelayMs) app.sound.SetAudioDelayMs(pressed.settings.audioDelayMs);
-    gp::Log("Key: %s", pressed.feedback.c_str());
-    app.feedback.Show(pressed.feedback);
+    PressAudio(app, audioKey, "Key");
     return true;
+}
+
+// Every setting at once: at launch (ticket 09 will load them first).
+void ApplyAllSettings(App& app) {
+    const gp::ViewerSettings& s = app.settings;
+    if (app.sound.Volume() != s.audio.volumePercent) app.sound.SetVolume(s.audio.volumePercent);
+    if (app.sound.Muted() != s.audio.muted) app.sound.SetMuted(s.audio.muted);
+    if (app.sound.AudioDelayMs() != s.audio.audioDelayMs) app.sound.SetAudioDelayMs(s.audio.audioDelayMs);
+    app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
+    app.presenter.SetVsync(s.vsync);
+    if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
+    if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.resolution);
+    gp::Log("Menu: V-sync %s", s.vsync ? "on" : "off");
+}
+
+void ShowAbout(App& app) {
+    gp::AboutInfo info;
+    info.device = app.feed.CurrentMode() ? app.feed.DeviceInUse() : L"";
+    info.mode = app.feed.CurrentMode();
+    info.rates = app.feed.Rates();
+    const std::wstring text = gp::AboutText(info);
+    gp::Log("Menu: About (signal rate %d, game rate %d)", info.rates.signalRate, info.rates.gameRate);
+    MessageBoxW(app.window, text.c_str(), L"About GamePlayer", MB_OK | MB_ICONINFORMATION);
+}
+
+// WM_COMMAND from the menu bar. Each change applies at once.
+void HandleMenuCommand(App& app, UINT id) {
+    gp::ViewerSettings& s = app.settings;
+    if (const auto card = app.menu.CaptureCardFor(id)) {
+        gp::Log("Menu: Capture Card \"%s\"", gp::ToUtf8(*card).c_str());
+        if (*card == app.feed.DeviceInUse() && app.feed.CurrentMode()) return;  // already showing it
+        s.captureCard = *card;
+        s.resolution.reset();  // the Resolution list belongs to a card
+        app.feed.SetChoice(s.captureCard, s.resolution);
+        return;
+    }
+    if (const auto resolution = app.menu.ResolutionFor(id)) {
+        if (*resolution) {
+            gp::Log("Menu: Resolution %ux%u", (*resolution)->width, (*resolution)->height);
+        } else {
+            gp::Log("Menu: Resolution default (1080p)");
+        }
+        if (*resolution == s.resolution) return;
+        s.resolution = *resolution;
+        app.feed.SetChoice(s.captureCard, s.resolution);
+        return;
+    }
+    switch (id) {
+    case gp::kMenuRateAuto:
+    case gp::kMenuRate30:
+    case gp::kMenuRate60:
+        s.frameRate = id == gp::kMenuRateAuto ? gp::GameRateOverride::Auto
+                      : id == gp::kMenuRate30 ? gp::GameRateOverride::Fps30
+                                              : gp::GameRateOverride::Fps60;
+        app.feed.SetGameRateOverride(s.frameRate);  // logs "Frames: override ..."
+        break;
+    case gp::kMenuVolumeUp: PressAudio(app, gp::AudioKey::VolumeUp, "Menu"); break;
+    case gp::kMenuVolumeDown: PressAudio(app, gp::AudioKey::VolumeDown, "Menu"); break;
+    case gp::kMenuMute: PressAudio(app, gp::AudioKey::ToggleMute, "Menu"); break;
+    case gp::kMenuDelayLater: PressAudio(app, gp::AudioKey::DelayLater, "Menu"); break;
+    case gp::kMenuDelayEarlier: PressAudio(app, gp::AudioKey::DelayEarlier, "Menu"); break;
+    case gp::kMenuDelayReset: PressAudio(app, gp::AudioKey::DelayReset, "Menu"); break;
+    case gp::kMenuFullscreen:
+        gp::Log("Menu: Fullscreen");
+        app.fullscreen.Toggle();
+        break;
+    case gp::kMenuAlwaysOnTop:
+        s.alwaysOnTop = !s.alwaysOnTop;
+        app.fullscreen.SetAlwaysOnTop(s.alwaysOnTop);  // logs
+        gp::Log("Menu: always on top %s, window topmost %s", s.alwaysOnTop ? "on" : "off",
+                (GetWindowLongPtrW(app.window, GWL_EXSTYLE) & WS_EX_TOPMOST) ? "yes" : "no");
+        break;
+    case gp::kMenuVsync:
+        s.vsync = !s.vsync;
+        app.presenter.SetVsync(s.vsync);
+        gp::Log("Menu: V-sync %s (%s)", s.vsync ? "on" : "off",
+                s.vsync ? "presents wait for the refresh, sync interval 1" : "present on arrival, tearing allowed");
+        break;
+    case gp::kMenuHotkeys:
+        gp::Log("Menu: Hotkeys");
+        MessageBoxW(app.window, gp::HotkeysText().c_str(), L"GamePlayer hotkeys", MB_OK | MB_ICONINFORMATION);
+        break;
+    case gp::kMenuAbout: ShowAbout(app); break;
+    }
+}
+
+void MenuOpening(App& app, HMENU popup) {
+    gp::MenuBar::State state;
+    state.settings = app.settings;
+    state.fullscreen = app.fullscreen.IsOn();
+    state.deviceInUse = app.feed.CurrentMode() ? app.feed.DeviceInUse() : L"";
+    state.modes = app.feed.Modes();
+    app.menu.Opening(popup, state);
 }
 
 // The window's frame: its size minus the Video Area (the client area). Includes
@@ -162,6 +266,20 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             return 0;
         }
         break;
+    case WM_ENTERMENULOOP:
+    case WM_EXITMENULOOP:
+        // Logged so the Stats lines in between show the Feed kept playing.
+        if (!wParam) gp::Log("Menu: %s", message == WM_ENTERMENULOOP ? "open" : "closed");
+        break;
+    case WM_INITMENUPOPUP:
+        if (app && !HIWORD(lParam)) MenuOpening(*app, reinterpret_cast<HMENU>(wParam));
+        return 0;
+    case WM_COMMAND:
+        if (app && HIWORD(wParam) == 0 && lParam == 0) {  // from a menu
+            HandleMenuCommand(*app, LOWORD(wParam));
+            return 0;
+        }
+        break;
     case WM_SIZING:
         // Windowed drags only: maximised and fullscreen have no sizing border.
         KeepShapeWhileSizing(window, wParam, reinterpret_cast<RECT*>(lParam));
@@ -229,7 +347,7 @@ std::wstring LogPathBesideExecutable() {
     return folder + L"GamePlayer.log";
 }
 
-HWND CreateViewerWindow(HINSTANCE instance) {
+HWND CreateViewerWindow(HINSTANCE instance, HMENU menu) {
     WNDCLASSEXW windowClass = {sizeof windowClass};
     windowClass.lpfnWndProc = WindowProc;
     windowClass.hInstance = instance;
@@ -240,9 +358,10 @@ HWND CreateViewerWindow(HINSTANCE instance) {
 
     const DWORD style = WS_OVERLAPPEDWINDOW;
     RECT bounds = {0, 0, kDefaultVideoAreaWidth, kDefaultVideoAreaWidth / 16 * 9};
-    AdjustWindowRectEx(&bounds, style, FALSE, 0);  // a first guess; SetDefaultSize measures the real frame
+    AdjustWindowRectEx(&bounds, style, TRUE, 0);  // a first guess; SetDefaultSize measures the real frame
+    // The menu bar is attached from the start, so the measured frame includes it.
     HWND window = CreateWindowExW(0, kWindowClass, kWindowTitle, style, CW_USEDEFAULT, CW_USEDEFAULT,
-                                  bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr, instance,
+                                  bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, menu, instance,
                                   nullptr);
     if (window) SetDefaultSize(window);
     return window;
@@ -262,15 +381,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(comResult)) gp::Log("CoInitializeEx failed hr=0x%08lX", static_cast<unsigned long>(comResult));
 
-    HWND window = CreateViewerWindow(instance);
+    gp::MenuBar menuBar;  // outlives the window, which owns it while attached
+    HWND window = CreateViewerWindow(instance, menuBar.Handle());
     if (!window) {
         gp::Log("Could not create the window (error %lu)", GetLastError());
         return 1;
     }
 
     {
-        App app(window, arguments.tolerance);
-        app.feed.SetGameRateOverride(arguments.rate);  // logs the setting
+        App app(window, menuBar, arguments.tolerance);
+        app.settings.frameRate = arguments.rate;
+        app.fullscreen.SetMenuBar(menuBar.Handle());
+        app.feed.OnResolutionFallback([&app](gp::Resolution failed) {
+            app.settings.resolution.reset();
+            app.feedback.Show(std::to_string(failed.width) + "x" + std::to_string(failed.height) +
+                              " did not start: back to 1080p");
+        });
+        ApplyAllSettings(app);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
         if (!app.presenter.Start(window)) gp::Log("No Presenter: the window stays black");

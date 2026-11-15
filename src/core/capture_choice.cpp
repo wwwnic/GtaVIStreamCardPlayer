@@ -1,5 +1,6 @@
 #include "core/capture_choice.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cwctype>
 
@@ -45,6 +46,75 @@ std::optional<size_t> ChooseCaptureMode(std::span<const CaptureMode> modes) {
         }
     }
     return best;
+}
+
+std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames, const std::wstring& chosen) {
+    if (!chosen.empty()) {
+        for (size_t i = 0; i < deviceNames.size(); i++) {
+            if (deviceNames[i] == chosen) return i;
+        }
+    }
+    return ChooseCaptureDevice(deviceNames);
+}
+
+namespace {
+
+bool HasMjpegTwin(std::span<const CaptureMode> modes, const CaptureMode& mode) {
+    for (const CaptureMode& other : modes) {
+        if (other.motionJpeg && other.width == mode.width && other.height == mode.height &&
+            other.fpsNumerator == mode.fpsNumerator && other.fpsDenominator == mode.fpsDenominator) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Lower is better; empty means the mode is never offered. Rates within 1 fps
+// of 60 count as 60, so YUY2 59.94 beats NV12 60 as in the default choice.
+std::optional<double> OfferCost(std::span<const CaptureMode> modes, const CaptureMode& mode) {
+    if (!mode.format || mode.width == 0 || mode.height == 0 || mode.fpsDenominator == 0) return std::nullopt;
+    const double fps = mode.Fps();
+    if (fps <= 0.0 || fps > 60.5 || HasMjpegTwin(modes, mode)) return std::nullopt;
+    const double below = 60.0 - fps;
+    const double band = below < 1.0 ? 0.0 : below;
+    const double formatCost = (*mode.format == PixelFormat::YUY2) ? 0.0 : 10.0;
+    return band * 100.0 + formatCost + std::fabs(below);
+}
+
+}  // namespace
+
+std::vector<OfferedResolution> OfferedResolutions(std::span<const CaptureMode> modes) {
+    std::vector<OfferedResolution> offered;
+    std::vector<double> costs;
+    for (size_t i = 0; i < modes.size(); i++) {
+        const std::optional<double> cost = OfferCost(modes, modes[i]);
+        if (!cost) continue;
+        const Resolution size{modes[i].width, modes[i].height};
+        size_t at = 0;
+        while (at < offered.size() && !(offered[at].resolution == size)) at++;
+        if (at == offered.size()) {
+            offered.push_back({size, i, modes[i].Fps()});
+            costs.push_back(*cost);
+        } else if (*cost < costs[at]) {
+            offered[at] = {size, i, modes[i].Fps()};
+            costs[at] = *cost;
+        }
+    }
+    std::stable_sort(offered.begin(), offered.end(), [](const OfferedResolution& a, const OfferedResolution& b) {
+        const uint64_t areaA = uint64_t{a.resolution.width} * a.resolution.height;
+        const uint64_t areaB = uint64_t{b.resolution.width} * b.resolution.height;
+        return areaA != areaB ? areaA < areaB : a.resolution.width < b.resolution.width;
+    });
+    return offered;
+}
+
+std::optional<size_t> ChooseCaptureMode(std::span<const CaptureMode> modes, std::optional<Resolution> chosen) {
+    if (chosen) {
+        for (const OfferedResolution& offer : OfferedResolutions(modes)) {
+            if (offer.resolution == *chosen) return offer.modeIndex;
+        }
+    }
+    return ChooseCaptureMode(modes);
 }
 
 std::optional<SoundEndpointChoice> ChooseSoundEndpoint(std::span<const std::wstring> endpointNames,

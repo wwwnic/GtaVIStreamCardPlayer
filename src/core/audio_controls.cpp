@@ -47,6 +47,9 @@ AudioKeyResult PressAudioKey(AudioSettings settings, AudioKey key) {
         return StepDelay(settings, -AudioSettings::kDelayStepMs);
     case AudioKey::DelayLater:
         return StepDelay(settings, AudioSettings::kDelayStepMs);
+    case AudioKey::DelayReset:
+        settings.audioDelayMs = 0;
+        return {settings, "Audio delay 0 ms (reset)"};
     }
     return {settings, ""};
 }

@@ -3,8 +3,11 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
+#include <vector>
 
+#include "core/capture_choice.h"
 #include "core/frame.h"
 
 namespace gp {
@@ -72,6 +75,18 @@ public:
     // Name of the Capture Card chosen by Start, even if it could not be
     // opened; empty when there is none. The sound is found by this name.
     virtual std::wstring DeviceName() const = 0;
+
+    // The menu's overrides, used from the next Start: a Capture Card by name
+    // and a resolution (empty: the automatic choices, capture_choice.h).
+    struct Choice {
+        std::wstring device;
+        std::optional<Resolution> resolution;
+    };
+    virtual void Choose(const Choice& choice) = 0;
+    // The chosen device's mode list as of the last Start (empty if none was read).
+    virtual std::vector<CaptureMode> Modes() const = 0;
+    // The mode capturing now; empty when not capturing.
+    virtual std::optional<CaptureMode> CurrentMode() const = 0;
 
     // Any thread.
     virtual Probe TakeProbe() = 0;

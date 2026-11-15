@@ -28,6 +28,11 @@ VideoAreaText MessageFor(VideoAreaState state, const SourceEvent& failure);
 // The small note shown while Playing when the sound could not start.
 VideoAreaText SoundMissingNote();
 
+// A resolution chosen in the menu could not start: the mode was refused or
+// its first read failed for a reason other than a busy card. The caller then
+// goes back to the default mode.
+bool ChosenModeFailed(const SourceEvent& event);
+
 // What the caller must do after an event or a tick.
 struct RecoveryActions {
     // Stop the sound and the Source, then start the Source again from scratch
@@ -63,6 +68,9 @@ public:
     void SoundStarted(bool ok, int64_t nowMs);
     void SoundLost(int64_t nowMs);                           // sound stopped by itself while playing
     void DevicesChanged(int64_t nowMs);                      // device arrival/removal, resume from sleep
+    // The user chose another Capture Card or resolution (menu): Loading, and
+    // restart now, in any state.
+    RecoveryActions ChoiceChanged(int64_t nowMs);
 
     // Call regularly (a few times a second).
     RecoveryActions Tick(int64_t nowMs);

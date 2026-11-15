@@ -23,7 +23,8 @@ int ClampAudioDelay(int ms);
 // The sample gain the settings give: 0 when muted, else the volume as a fraction.
 double GainOf(const AudioSettings& settings);
 
-enum class AudioKey { VolumeUp, VolumeDown, ToggleMute, DelayEarlier, DelayLater };
+// DelayReset has no key; it is the Audio menu's "Reset Audio Delay to 0".
+enum class AudioKey { VolumeUp, VolumeDown, ToggleMute, DelayEarlier, DelayLater, DelayReset };
 
 struct AudioKeyResult {
     AudioSettings settings;

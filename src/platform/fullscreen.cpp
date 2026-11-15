@@ -145,15 +145,30 @@ void Fullscreen::DisplayChanged() {
     Cover(bounds);
 }
 
-// The one place window chrome is hidden and restored. Ticket 08's menu bar
-// is hidden and shown here too.
+// The one place window chrome is hidden and restored: borders, title bar,
+// the menu bar and the topmost flag.
 void Fullscreen::ShowChrome(bool shown) {
     if (shown) {
         SetWindowLongPtrW(window_, GWL_STYLE, savedStyle_);
+        if (menu_) SetMenu(window_, menu_);
+        if (alwaysOnTop_) ApplyTopmost(true);
     } else {
+        if (alwaysOnTop_) ApplyTopmost(false);
+        if (menu_) SetMenu(window_, nullptr);
         savedStyle_ = GetWindowLongPtrW(window_, GWL_STYLE);
         SetWindowLongPtrW(window_, GWL_STYLE, (savedStyle_ & ~static_cast<LONG_PTR>(WS_OVERLAPPEDWINDOW)) | WS_POPUP);
     }
+}
+
+void Fullscreen::SetAlwaysOnTop(bool on) {
+    alwaysOnTop_ = on;
+    if (!on_) ApplyTopmost(on);  // in fullscreen it applies on leaving
+    Log("Window: always on top %s%s", on ? "on" : "off", on_ ? " (from leaving fullscreen)" : "");
+}
+
+void Fullscreen::ApplyTopmost(bool topmost) {
+    SetWindowPos(window_, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 
 void Fullscreen::Cover(const ScreenRect& bounds) {

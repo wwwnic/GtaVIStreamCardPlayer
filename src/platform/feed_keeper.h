@@ -8,7 +8,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "core/processor.h"
@@ -44,8 +47,19 @@ public:
     // arrived since the previous call.
     bool TakePlayingSecond();
 
-    // Auto / 30 / 60 (ticket 08 will put it in the menu). Takes effect at once.
+    // Auto / 30 / 60 (the menu's Frame rate). Takes effect at once.
     void SetGameRateOverride(GameRateOverride setting);
+
+    // The menu's Capture Card and Resolution (empty: automatic). Restarts
+    // picture and sound at once through Loading, like a launch.
+    void SetChoice(const std::wstring& device, std::optional<Resolution> resolution);
+    // A chosen resolution that fails to start is dropped for the default
+    // mode; this is told which one failed (to clear it from the settings).
+    void OnResolutionFallback(std::function<void(Resolution)> told) { fellBack_ = std::move(told); }
+    // What is in use, for the menu and About.
+    std::wstring DeviceInUse() const { return source_->DeviceName(); }
+    std::vector<CaptureMode> Modes() const { return source_->Modes(); }
+    std::optional<CaptureMode> CurrentMode() const { return source_->CurrentMode(); }
     // Signal Rate and Game Rate now (for the Help or debug display).
     FrameRates Rates();
     // The F key: the FPS counter on or off. Off at every launch. It is only
@@ -55,6 +69,7 @@ public:
 private:
     void Tick();
     void Apply(RecoveryActions actions);
+    bool FallBackFrom(const SourceEvent& event);
     void RestartFeed();
     void StartSound();
     void ShowState();
@@ -77,6 +92,9 @@ private:
     std::unique_ptr<Source> source_;
     Sound& sound_;
     bool soundRunning_ = false;
+    Source::Choice choice_;
+    bool choiceProven_ = true;  // a frame arrived since the choice was made
+    std::function<void(Resolution)> fellBack_;
     VideoAreaStateMachine machine_;
     VideoAreaState shown_ = VideoAreaState::Loading;
     bool shownSoundNote_ = false;

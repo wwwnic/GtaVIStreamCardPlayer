@@ -279,3 +279,39 @@ TEST_CASE("plugging the card in brings the Feed up without a restart of the app"
     machine.FramesArrived(2100);
     CHECK(machine.State() == VideoAreaState::Playing);
 }
+
+TEST_CASE("choosing another device or resolution while playing restarts at once through Loading") {
+    M machine = PlayingAt(100);
+    const gp::RecoveryActions actions = machine.ChoiceChanged(500);
+    CHECK(actions.restartFeed);
+    CHECK(machine.State() == VideoAreaState::Loading);
+    Restart(machine, 500, kOpened);
+    CHECK(machine.FramesArrived(600).startSound);
+    CHECK(machine.State() == VideoAreaState::Playing);
+}
+
+TEST_CASE("a choice made while an error shows restarts at once and leaves the error behind") {
+    M machine(0);
+    machine.Tick(0);
+    Restart(machine, 0, kOdd);
+    machine.Tick(1000);
+    Restart(machine, 1000, kOdd);
+    REQUIRE(machine.State() == VideoAreaState::Error);
+    CHECK(machine.ChoiceChanged(1200).restartFeed);
+    CHECK(machine.State() == VideoAreaState::Loading);
+    machine.FeedRestarted(1200);
+    CHECK_FALSE(machine.Tick(1300).restartFeed);  // no stale retry behind it
+}
+
+TEST_CASE("a chosen mode that fails to set or to start reading counts as the mode's failure") {
+    CHECK(gp::ChosenModeFailed({Kind::Failed, SourceStage::Mode, 0xC00D36B4u}));
+    CHECK(gp::ChosenModeFailed({Kind::Failed, SourceStage::FirstRead, 0x80004005u}));
+}
+
+TEST_CASE("a busy card, a missing card or a lost stream is not the chosen mode's fault") {
+    CHECK_FALSE(gp::ChosenModeFailed(kBusy));
+    CHECK_FALSE(gp::ChosenModeFailed(kNoDevice));
+    CHECK_FALSE(gp::ChosenModeFailed(kStreamLost));
+    CHECK_FALSE(gp::ChosenModeFailed(kOdd));  // before the mode is set
+    CHECK_FALSE(gp::ChosenModeFailed(kOpened));
+}
