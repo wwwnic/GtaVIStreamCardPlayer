@@ -39,13 +39,36 @@ struct TextOverlay::Impl {
         return format.Get();
     }
 
-    ComPtr<IDWriteTextLayout> Layout(const std::wstring& text, float size, bool bold, float maxWidth) {
+    // The layout last made for each line of each place. A text is drawn into
+    // every presented frame while it shows (the FPS counter: every Unique
+    // Frame), so it is laid out once, not once per present.
+    struct KeptLayout {
+        std::wstring text;
+        float size = 0, maxWidth = 0;
+        bool leading = false;
         ComPtr<IDWriteTextLayout> layout;
+    };
+    KeptLayout kept[kPlaces][2];  // [place][0 headline, 1 detail]
+
+    IDWriteTextLayout* Layout(KeptLayout& keep, const std::wstring& text, float size, bool bold, float maxWidth,
+                              bool leading) {
+        if (keep.layout && keep.text == text && keep.size == size && keep.maxWidth == maxWidth &&
+            keep.leading == leading) {
+            return keep.layout.Get();
+        }
+        keep.layout.Reset();
         IDWriteTextFormat* format = Format(size, bold);
-        if (text.empty() || !format) return layout;
-        writeFactory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, maxWidth, 10000.0f,
-                                       &layout);
-        return layout;
+        if (text.empty() || !format) return nullptr;
+        if (FAILED(writeFactory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, maxWidth,
+                                                  10000.0f, &keep.layout))) {
+            return nullptr;
+        }
+        if (leading) keep.layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        keep.text = text;
+        keep.size = size;
+        keep.maxWidth = maxWidth;
+        keep.leading = leading;
+        return keep.layout.Get();
     }
 
     bool EnsureTarget(IDXGISwapChain1* swapChain) {
@@ -65,13 +88,10 @@ struct TextOverlay::Impl {
 
     void DrawOne(TextPlace place, const VideoAreaText& text, uint32_t width, uint32_t height) {
         const TextSizes sizes = SizeText(place, static_cast<int>(width), static_cast<int>(height));
-        ComPtr<IDWriteTextLayout> headline = Layout(text.headline, sizes.headline, true, sizes.maxWidth);
-        ComPtr<IDWriteTextLayout> detail = Layout(text.detail, sizes.detail, false, sizes.maxWidth);
         const bool corner = place == TextPlace::TopLeft;
-        if (corner) {
-            if (headline) headline->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-            if (detail) detail->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-        }
+        KeptLayout* keep = kept[static_cast<size_t>(place)];
+        IDWriteTextLayout* headline = Layout(keep[0], text.headline, sizes.headline, true, sizes.maxWidth, corner);
+        IDWriteTextLayout* detail = Layout(keep[1], text.detail, sizes.detail, false, sizes.maxWidth, corner);
         DWRITE_TEXT_METRICS headlineSize = {}, detailSize = {};
         if (headline) headline->GetMetrics(&headlineSize);
         if (detail) detail->GetMetrics(&detailSize);
@@ -95,9 +115,9 @@ struct TextOverlay::Impl {
                         top + blockHeight + pad / 2),
             pad / 2, pad / 2};
         context->FillRoundedRectangle(backing, backingBrush.Get());
-        if (headline) context->DrawTextLayout(D2D1::Point2F(left, top), headline.Get(), headlineBrush.Get());
+        if (headline) context->DrawTextLayout(D2D1::Point2F(left, top), headline, headlineBrush.Get());
         if (detail) {
-            context->DrawTextLayout(D2D1::Point2F(left, top + headlineSize.height + gap), detail.Get(),
+            context->DrawTextLayout(D2D1::Point2F(left, top + headlineSize.height + gap), detail,
                                     detailBrush.Get());
         }
     }

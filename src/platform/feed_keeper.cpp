@@ -201,9 +201,12 @@ void FeedKeeper::SetFpsCounter(bool on) {
 }
 
 // Never presents by itself: Lossless Scaling would count it as a game frame.
+// Only while Playing: over a state message (Loading, No signal) it would be a
+// number from a Feed that is not there.
 void FeedKeeper::UpdateFpsCounter() {
+    const bool show = fpsCounter_ && machine_.State() == VideoAreaState::Playing;
     presenter_.ShowTextWithNextFrame(TextPlace::TopLeft,
-                                     fpsCounter_ ? VideoAreaText{FpsCounterText(Rates()), L""} : VideoAreaText{});
+                                     show ? VideoAreaText{FpsCounterText(Rates()), L""} : VideoAreaText{});
 }
 
 // Once a second: enough to tell from the log alone whether a game's Repeated
@@ -252,6 +255,7 @@ void FeedKeeper::RestartFeed() {
     processor_->Reset();  // the new Source's first frame is always shown
     const uint32_t generation = ++generation_;
     machine_.FeedRestarted(began);
+    UpdateFpsCounter();  // blank before the new Source's first frame, not the old Source's number
     firstFrameWanted_ = true;
     HWND window = window_;
     source_->Start(
@@ -309,6 +313,7 @@ void FeedKeeper::ShowState() {
         }
         shown_ = state;
         shownFailure_ = failure;
+        UpdateFpsCounter();  // first: the present for the state change draws it (or no longer does)
         presenter_.ShowText(TextPlace::Centre, MessageFor(state, failure));
         presenter_.ShowPicture(state == VideoAreaState::Playing);
     }
