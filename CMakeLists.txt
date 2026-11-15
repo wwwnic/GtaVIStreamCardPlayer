@@ -30,7 +30,7 @@ add_library(gameplayer_core STATIC
     src/core/video_area_text.cpp
     src/core/luma_summary.cpp
     src/core/audio_controls.cpp
-    src/core/feedback_line.cpp
+    src/core/shown_texts.cpp
     src/core/window_shape.cpp
     src/core/menu_model.cpp
     src/core/settings_file.cpp
@@ -78,7 +78,7 @@ add_executable(gameplayer_tests
     tests/video_area_text_test.cpp
     tests/luma_summary_test.cpp
     tests/audio_controls_test.cpp
-    tests/feedback_line_test.cpp
+    tests/shown_texts_test.cpp
     tests/window_shape_test.cpp
     tests/menu_model_test.cpp
     tests/settings_file_test.cpp

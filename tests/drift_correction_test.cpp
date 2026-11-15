@@ -127,6 +127,22 @@ TEST_CASE("starting over forgets the clock difference learnt so far") {
     CHECK(correction.Update(kTarget, kTarget, kPeriod) == doctest::Approx(1.0));
 }
 
+TEST_CASE("picking up again at a new target (Audio Delay) keeps the clock difference learnt") {
+    // Learn a 300 ppm fast card, as in a long session.
+    DriftCorrection correction;
+    double fill = kTarget;
+    correction.Reset(fill);
+    double rate = 1.0;
+    for (int i = 0; i < 600 * 100; i++) {
+        fill += kPeriod * 1.0003;
+        fill -= kPeriod * rate;
+        rate = correction.Update(fill, kTarget, kPeriod);
+    }
+    const double raised = kTarget + 0.1;
+    correction.Resume(raised);
+    CHECK(correction.Update(raised, raised, kPeriod) == doctest::Approx(1.0003).epsilon(0.00002));
+}
+
 TEST_CASE("with the card's clock running slow, the fill settles near the target too") {
     DriftCorrection correction;
     double fill = kTarget;

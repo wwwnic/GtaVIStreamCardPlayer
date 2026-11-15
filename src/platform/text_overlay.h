@@ -10,14 +10,15 @@
 #include <array>
 #include <memory>
 
+#include "core/shown_texts.h"
 #include "core/video_area_text.h"
 
 namespace gp {
 
 class TextOverlay {
 public:
-    static constexpr size_t kPlaces = 4;  // one per TextPlace
-    using Texts = std::array<VideoAreaText, kPlaces>;  // indexed by TextPlace
+    static constexpr size_t kPlaces = ShownTexts::kPlaces;  // one per TextPlace
+    using Texts = ShownTexts::Texts;  // indexed by TextPlace
 
     TextOverlay();
     ~TextOverlay();

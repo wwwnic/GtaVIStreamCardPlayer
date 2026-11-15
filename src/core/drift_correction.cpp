@@ -33,6 +33,11 @@ void DriftCorrection::Reset(double fillSeconds) {
     rate_ = 1.0;
 }
 
+void DriftCorrection::Resume(double fillSeconds) {
+    smoothedFill_ = fillSeconds;
+    rate_ = 1.0;
+}
+
 double DriftCorrection::Update(double fillSeconds, double targetSeconds, double elapsedSeconds) {
     const double elapsed = std::max(elapsedSeconds, 0.0);
     const double weight = 1.0 - std::exp(-elapsed / kSmoothingSeconds);

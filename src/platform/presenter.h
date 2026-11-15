@@ -59,7 +59,8 @@ public:
 
     // Shows `text` at `place` in the Video Area, replacing what was there; an
     // empty text removes it. durationMs > 0: removed by itself after that long
-    // (brief feedback). Drawn even when no frames arrive. Any thread.
+    // (brief feedback). Drawn even when no frames arrive. The same text again
+    // presents nothing (a brief one only gets its time restarted). Any thread.
     void ShowText(TextPlace place, VideoAreaText text, int durationMs = 0);
 
     // Like ShowText, but never causes a present: the text is drawn into the

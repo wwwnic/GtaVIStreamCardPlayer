@@ -59,24 +59,24 @@ TEST_CASE("K plays the sound 50 ms later each press, J 50 ms earlier") {
     AudioSettings settings;
     gp::AudioKeyResult result = PressAudioKey(settings, AudioKey::DelayLater);
     CHECK(result.settings.audioDelayMs == 50);
-    CHECK(result.feedback == "Audio delay +50 ms");
+    CHECK(result.feedback == "Audio Delay +50 ms");
     result = PressAudioKey(result.settings, AudioKey::DelayLater);
     CHECK(result.settings.audioDelayMs == 100);
-    CHECK(result.feedback == "Audio delay +100 ms");
+    CHECK(result.feedback == "Audio Delay +100 ms");
     result = PressAudioKey(result.settings, AudioKey::DelayEarlier);
     CHECK(result.settings.audioDelayMs == 50);
-    CHECK(result.feedback == "Audio delay +50 ms");
+    CHECK(result.feedback == "Audio Delay +50 ms");
 }
 
 TEST_CASE("the Audio Delay stays between 0 and 500 ms and the line says when it is at a limit") {
     AudioSettings settings;
     gp::AudioKeyResult result = PressAudioKey(settings, AudioKey::DelayEarlier);
     CHECK(result.settings.audioDelayMs == 0);
-    CHECK(result.feedback == "Audio delay 0 ms (minimum)");
+    CHECK(result.feedback == "Audio Delay 0 ms (minimum)");
     settings.audioDelayMs = 450;
     result = PressAudioKey(settings, AudioKey::DelayLater);
     CHECK(result.settings.audioDelayMs == 500);
-    CHECK(result.feedback == "Audio delay +500 ms (maximum)");
+    CHECK(result.feedback == "Audio Delay +500 ms (maximum)");
     result = PressAudioKey(result.settings, AudioKey::DelayLater);
     CHECK(result.settings.audioDelayMs == 500);
     CHECK(gp::ClampAudioDelay(-50) == 0);
@@ -93,7 +93,24 @@ TEST_CASE("the menu's reset puts the Audio Delay back to 0 and leaves the sound 
     CHECK(result.settings.audioDelayMs == 0);
     CHECK(result.settings.volumePercent == 40);
     CHECK(result.settings.muted);
-    CHECK(result.feedback == "Audio delay 0 ms (reset)");
+    CHECK(result.feedback == "Audio Delay 0 ms (reset)");
+}
+
+TEST_CASE("from a value off the steps (a hand-edited settings file) the keys go to the next step") {
+    AudioSettings settings;
+    settings.volumePercent = 42;
+    CHECK(PressAudioKey(settings, AudioKey::VolumeUp).settings.volumePercent == 45);
+    CHECK(PressAudioKey(settings, AudioKey::VolumeDown).settings.volumePercent == 40);
+    settings.volumePercent = 98;
+    CHECK(PressAudioKey(settings, AudioKey::VolumeUp).settings.volumePercent == 100);
+    settings.volumePercent = 2;
+    CHECK(PressAudioKey(settings, AudioKey::VolumeDown).settings.volumePercent == 0);
+    settings.audioDelayMs = 30;
+    CHECK(PressAudioKey(settings, AudioKey::DelayLater).settings.audioDelayMs == 50);
+    CHECK(PressAudioKey(settings, AudioKey::DelayEarlier).settings.audioDelayMs == 0);
+    settings.audioDelayMs = 480;
+    CHECK(PressAudioKey(settings, AudioKey::DelayLater).settings.audioDelayMs == 500);
+    CHECK(PressAudioKey(settings, AudioKey::DelayEarlier).settings.audioDelayMs == 450);
 }
 
 TEST_CASE("changing the volume while muted unmutes, from the kept level") {

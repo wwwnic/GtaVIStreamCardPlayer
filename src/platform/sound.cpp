@@ -592,6 +592,13 @@ void Sound::SetAudioDelayMs(int ms) {
     ApplySettings();
 }
 
+void Sound::SetAudio(const AudioSettings& audio) {
+    settings_.volumePercent = ClampVolume(audio.volumePercent);
+    settings_.muted = audio.muted;
+    settings_.audioDelayMs = ClampAudioDelay(audio.audioDelayMs);
+    ApplySettings();
+}
+
 void Sound::ApplySettings() {
     if (!impl_ || !impl_->playout) {
         Log("Audio: volume %d%%%s, Audio Delay %d ms (no sound playing)", settings_.volumePercent,

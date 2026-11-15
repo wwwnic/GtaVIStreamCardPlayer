@@ -8,15 +8,23 @@ namespace {
 
 std::string VolumeLine(int percent) { return "Volume " + std::to_string(percent) + "%"; }
 
+// The next multiple of `step` above (step > 0) or below (step < 0) a value
+// of 0 or more; a value on the steps moves one step.
+int NextStep(int value, int step) {
+    const int size = step > 0 ? step : -step;
+    if (step > 0) return (value / size + 1) * size;
+    return (value + size - 1) / size * size - size;
+}
+
 AudioKeyResult StepVolume(AudioSettings settings, int step) {
     settings.muted = false;  // changing the volume while muted brings the sound back
-    settings.volumePercent = ClampVolume(settings.volumePercent + step);
+    settings.volumePercent = ClampVolume(NextStep(ClampVolume(settings.volumePercent), step));
     return {settings, VolumeLine(settings.volumePercent)};
 }
 
 AudioKeyResult StepDelay(AudioSettings settings, int step) {
-    settings.audioDelayMs = ClampAudioDelay(settings.audioDelayMs + step);
-    std::string line = "Audio delay ";
+    settings.audioDelayMs = ClampAudioDelay(NextStep(ClampAudioDelay(settings.audioDelayMs), step));
+    std::string line = "Audio Delay ";
     if (settings.audioDelayMs > 0) line += "+";
     line += std::to_string(settings.audioDelayMs) + " ms";
     if (settings.audioDelayMs == 0) line += " (minimum)";
@@ -49,7 +57,7 @@ AudioKeyResult PressAudioKey(AudioSettings settings, AudioKey key) {
         return StepDelay(settings, AudioSettings::kDelayStepMs);
     case AudioKey::DelayReset:
         settings.audioDelayMs = 0;
-        return {settings, "Audio delay 0 ms (reset)"};
+        return {settings, "Audio Delay 0 ms (reset)"};
     }
     return {settings, ""};
 }

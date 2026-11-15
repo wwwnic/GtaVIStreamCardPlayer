@@ -18,6 +18,10 @@ public:
     // example after playback (re)starts.
     void Reset(double fillSeconds);
 
+    // Starts over from this fill but keeps the clock difference learnt: for
+    // a restart between the same two clocks at another target (Audio Delay).
+    void Resume(double fillSeconds);
+
     // One fill reading, `elapsedSeconds` after the previous one. Returns the
     // playback rate: 1 is normal, above 1 drains the buffer faster.
     // The target may change between calls (Audio Delay will raise it).
