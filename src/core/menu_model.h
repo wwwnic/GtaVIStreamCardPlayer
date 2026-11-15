@@ -58,6 +58,7 @@ struct AboutInfo {
     std::wstring device;              // empty: none
     std::optional<CaptureMode> mode;  // empty: none
     FrameRates rates;
+    GameRateOverride frameRate = GameRateOverride::Auto;  // not Auto: the shown rate is added
 };
 std::wstring AboutText(const AboutInfo& info);
 

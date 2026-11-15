@@ -139,8 +139,10 @@ void ShowAbout(App& app) {
     info.device = app.feed.CurrentMode() ? app.feed.DeviceInUse() : L"";
     info.mode = app.feed.CurrentMode();
     info.rates = app.feed.Rates();
+    info.frameRate = app.settings.frameRate;
     const std::wstring text = gp::AboutText(info);
-    gp::Log("Menu: About (signal rate %d, game rate %d)", info.rates.signalRate, info.rates.gameRate);
+    gp::Log("Menu: About (signal rate %d, game rate %d, presented rate %d)", info.rates.signalRate,
+            info.rates.gameRate, info.rates.presentedRate);
     MessageBoxW(app.window, text.c_str(), L"About GamePlayer", MB_OK | MB_ICONINFORMATION);
 }
 

@@ -73,7 +73,8 @@ struct UniqueFrameTotals {
 // is normal (menus, pause screens).
 struct FrameRates {
     int signalRate = 0;  // frames arriving from the Capture Card
-    int gameRate = 0;    // Unique Frames among them
+    int gameRate = 0;    // Unique Frames among them (detected, whatever the override)
+    int presentedRate = 0;  // frames the Viewer presents: the Game Rate on Auto, else per the override
 };
 
 class UniqueFrameProcessor final : public Processor {
@@ -111,6 +112,7 @@ private:
     struct Arrival {
         int64_t ticks;
         bool unique;
+        bool presented;
     };
     // The rates cover the arrivals of the last two seconds: long enough that
     // uneven pacing reads steady, short enough to follow a change in a second or two.
@@ -136,9 +138,12 @@ private:
     UniqueCloseness closeness_;
     int shownSignal_ = 0;
     int shownGame_ = 0;
+    int shownPresented_ = 0;
 };
 
-// The on-screen FPS counter's text: "Game Rate / Signal Rate", e.g. "30 / 60".
+// The on-screen FPS counter's text: "presented rate / Signal Rate", e.g. "30 / 60".
+// The first number is what is shown (and what Lossless Scaling counts): the Game
+// Rate on Auto, the override's rate otherwise.
 std::wstring FpsCounterText(FrameRates rates);
 
 }  // namespace gp

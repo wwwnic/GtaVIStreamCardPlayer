@@ -213,17 +213,19 @@ void FeedKeeper::LogFrames() {
     const int64_t uniqueWorst = timing_.uniqueWorst.exchange(0), repeatWorst = timing_.repeatWorst.exchange(0);
     const int64_t afterWorst = timing_.afterWorst.exchange(0);
     Log("Frames: arrived %llu, unique %llu, repeated exact %llu near %llu, presented %llu, dropped %llu; "
-        "game rate %d, signal rate %d; override %s, tolerance %.4f; near max %.5f, close unique %u min %.5f; "
-        "before present ms unique avg %.3f worst %.3f, repeated avg %.3f worst %.3f; after present worst %.3f",
+        "game rate %d, presented rate %d, signal rate %d; override %s, tolerance %.4f; near max %.5f, close unique %u min %.5f; "
+        "before present ms unique avg %.3f worst %.3f, repeated avg %.3f worst %.3f; after present worst %.3f; "
+        "FPS counter %s",
         static_cast<unsigned long long>(now.arrived - was.arrived),
         static_cast<unsigned long long>(now.unique - was.unique),
         static_cast<unsigned long long>(now.repeatedExact - was.repeatedExact),
         static_cast<unsigned long long>(now.repeatedNear - was.repeatedNear),
         static_cast<unsigned long long>(now.presented - was.presented),
-        static_cast<unsigned long long>(now.dropped - was.dropped), rates.gameRate, rates.signalRate,
-        NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
+        static_cast<unsigned long long>(now.dropped - was.dropped), rates.gameRate, rates.presentedRate,
+        rates.signalRate, NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
         close.closeUnique ? close.closeShareMin : 0.0, uniqueCount ? QpcToMs(uniqueTicks) / uniqueCount : 0.0,
-        QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst), QpcToMs(afterWorst));
+        QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst), QpcToMs(afterWorst),
+        fpsCounter_ ? ("\"" + ToUtf8(FpsCounterText(rates)) + "\"").c_str() : "off");
     loggedTotals_ = now;
 }
 

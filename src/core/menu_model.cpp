@@ -1,5 +1,6 @@
 #include "core/menu_model.h"
 
+#include <cstring>
 #include <cwchar>
 
 namespace gp {
@@ -77,7 +78,7 @@ std::wstring HotkeysText() {
            L"M\tMute / unmute\n"
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
-           L"F\tFPS counter (Game Rate / Signal Rate)\n"
+           L"F\tFPS counter (frames shown / Signal Rate)\n"
            L"\nAlt opens the menu (windowed only).";
 }
 
@@ -95,6 +96,10 @@ std::wstring AboutText(const AboutInfo& info) {
     }
     text += L"\nSignal Rate: " + std::to_wstring(info.rates.signalRate) + L" fps (frames arriving)";
     text += L"\nGame Rate: " + std::to_wstring(info.rates.gameRate) + L" fps (Unique Frames)";
+    if (info.frameRate != GameRateOverride::Auto) {
+        const std::wstring setting(NameOf(info.frameRate), NameOf(info.frameRate) + std::strlen(NameOf(info.frameRate)));
+        text += L"\nShown: " + std::to_wstring(info.rates.presentedRate) + L" fps (Frame rate set to " + setting + L")";
+    }
     return text;
 }
 
