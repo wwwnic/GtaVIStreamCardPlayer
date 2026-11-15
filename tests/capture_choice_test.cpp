@@ -29,6 +29,18 @@ TEST_CASE("without a GC553 Pro the first capture device is chosen") {
     CHECK(ChooseCaptureDevice(names) == 0);
 }
 
+TEST_CASE("the GC553 Pro is chosen over another GC553 model listed before it") {
+    std::vector<std::wstring> names = {L"USB Camera", L"Live Gamer ULTRA GC553", L"Live Gamer ULTRA S GC553Pro"};
+    CHECK(ChooseCaptureDevice(names) == 2);
+    names[2] = L"Live Gamer Ultra S GC553 Pro";  // spelt with a space
+    CHECK(ChooseCaptureDevice(names) == 2);
+}
+
+TEST_CASE("without the Pro, another GC553 is still chosen before an unrelated first device") {
+    std::vector<std::wstring> names = {L"USB Camera", L"Live Gamer ULTRA GC553"};
+    CHECK(ChooseCaptureDevice(names) == 1);
+}
+
 TEST_CASE("with no capture devices nothing is chosen") {
     CHECK(ChooseCaptureDevice({}) == std::nullopt);
 }
@@ -228,6 +240,26 @@ TEST_CASE("MJPEG modes, their uncompressed twins and anything above 60 fps are n
         Mjpeg(1280, 720, 30, 1),
     };
     CHECK(gp::OfferedResolutions(modes).empty());
+}
+
+TEST_CASE("an MJPEG twin is recognised when its rate is the same number written as another fraction") {
+    std::vector<CaptureMode> modes = {
+        {PixelFormat::NV12, 3440, 1440, 60, 1},
+        Mjpeg(3440, 1440, 60000, 1000),
+        {PixelFormat::NV12, 1280, 720, 30000, 1001},
+        Mjpeg(1280, 720, 60000, 2002),
+    };
+    CHECK(gp::OfferedResolutions(modes).empty());
+}
+
+TEST_CASE("an MJPEG mode of the same size at another rate is not a twin") {
+    std::vector<CaptureMode> modes = {
+        {PixelFormat::NV12, 1280, 720, 60, 1},
+        Mjpeg(1280, 720, 60000, 1001),
+    };
+    const std::vector<gp::OfferedResolution> offered = gp::OfferedResolutions(modes);
+    REQUIRE(offered.size() == 1);
+    CHECK(offered[0].modeIndex == 0);
 }
 
 TEST_CASE("a chosen resolution picks its offered mode; the default (none) is 1080p60") {

@@ -115,19 +115,33 @@ HRESULT EnumerateVideoCaptureDevices(IMFActivate*** devices, UINT32* count) {
     return hr;
 }
 
-const char* RangeName(ColourRange range) {
+// For the log. A value the card gave but the Viewer does not convert is named
+// by its number, not called unspecified.
+std::string DefaultedText(IMFMediaType* type, REFGUID key, const char* treatedAs) {
+    UINT32 raw = 0;
+    const bool given = SUCCEEDED(type->GetUINT32(key, &raw)) && raw != 0;  // 0: "unknown" in both lists
+    char text[80];
+    if (given) {
+        snprintf(text, sizeof text, "unsupported value %u (treated as %s)", raw, treatedAs);
+    } else {
+        snprintf(text, sizeof text, "unspecified (treated as %s)", treatedAs);
+    }
+    return text;
+}
+
+std::string RangeText(IMFMediaType* type, ColourRange range) {
     switch (range) {
     case ColourRange::Full: return "full";
     case ColourRange::Limited: return "limited";
-    default: return "unspecified (treated as limited)";
+    default: return DefaultedText(type, MF_MT_VIDEO_NOMINAL_RANGE, "limited");
     }
 }
 
-const char* MatrixName(ColourMatrix matrix) {
+std::string MatrixText(IMFMediaType* type, ColourMatrix matrix) {
     switch (matrix) {
     case ColourMatrix::BT601: return "BT.601";
     case ColourMatrix::BT709: return "BT.709";
-    default: return "unspecified (treated as BT.709)";
+    default: return DefaultedText(type, MF_MT_YUV_MATRIX, "BT.709");
     }
 }
 
@@ -224,6 +238,10 @@ public:
         if (flags & (MF_SOURCE_READERF_NATIVEMEDIATYPECHANGED | MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)) {
             typeChanges_++;
             Log("Source: media type changed mid-stream (flags=0x%lX)", static_cast<unsigned long>(flags));
+            if (!AdoptCurrentType()) {
+                Fail(SourceStage::Read, MF_E_INVALIDMEDIATYPE, "the new media type is not one the Viewer shows");
+                return S_OK;
+            }
         }
         if (sample) {
             if (MFGetAttributeUINT32(sample, MFSampleExtension_Discontinuity, FALSE)) discontinuities_++;
@@ -258,6 +276,34 @@ private:
         events_ = nullptr;  // one failure per start
     }
 
+    // After a type change the frames are described by the reader's current
+    // type, not the one read at Start. False: a type the Viewer cannot show
+    // (the Feed is then restarted, which sets the chosen mode again). Called
+    // with mutex_ held. The mode in About stays the one set at Start.
+    bool AdoptCurrentType() {
+        ComPtr<IMFMediaType> current;
+        const HRESULT hr = reader_->GetCurrentMediaType(kVideoStream, &current);
+        if (FAILED(hr)) {
+            Log("Source: GetCurrentMediaType failed hr=0x%08lX; frames read as before", static_cast<unsigned long>(hr));
+            return true;
+        }
+        const CaptureMode mode = ModeOf(current.Get());
+        if (!mode.format || mode.width == 0 || mode.height == 0) {
+            Log("Source: now %s", Describe(current.Get()).c_str());
+            return false;
+        }
+        const Colour colour = ColourOf(current.Get());
+        if (*mode.format == format_ && mode.width == width_ && mode.height == height_ && colour == colour_) return true;
+        format_ = *mode.format;
+        width_ = mode.width;
+        height_ = mode.height;
+        colour_ = colour;
+        warnedShortBuffer_ = warnedLongBuffer_ = false;
+        Log("Source: now %s; colour range %s, matrix %s", Describe(current.Get()).c_str(),
+            RangeText(current.Get(), colour.range).c_str(), MatrixText(current.Get(), colour.matrix).c_str());
+        return true;
+    }
+
     FramePtr CopySample(IMFSample* sample, int64_t arrivalQpc) {
         ComPtr<IMFMediaBuffer> buffer;
         if (FAILED(sample->ConvertToContiguousBuffer(&buffer))) return nullptr;
@@ -266,6 +312,11 @@ private:
         DWORD length = 0;
         if (FAILED(buffer->Lock(&data, nullptr, &length))) return nullptr;
         std::shared_ptr<Frame> frame;
+        if (length > byteSize && !warnedLongBuffer_) {
+            warnedLongBuffer_ = true;  // copied as packed all the same; a sheared picture would be padded rows
+            Log("Source: buffer of %lu bytes is longer than a %zu byte frame; its rows may be padded",
+                static_cast<unsigned long>(length), byteSize);
+        }
         if (length >= byteSize) {
             // With converters disabled the card's buffer is tightly packed
             // (verified by the prototype on the GC553 Pro), which is exactly
@@ -299,7 +350,7 @@ private:
     Colour colour_;
     FramePool pool_;
     std::atomic<uint64_t> sequence_{0};
-    bool warnedShortBuffer_ = false;
+    bool warnedShortBuffer_ = false, warnedLongBuffer_ = false;
 
     // The probe (no-signal investigation), taken once a second from another thread.
     std::atomic<uint32_t> frames_{0}, streamTicks_{0}, typeChanges_{0}, discontinuities_{0};
@@ -430,14 +481,14 @@ private:
         callback_.Attach(new ReaderCallback());
 
         ComPtr<IMFAttributes> settings;
-        MFCreateAttributes(&settings, 3);
-        settings->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, callback_.Get());
+        HRESULT hr = MFCreateAttributes(&settings, 3);
+        if (SUCCEEDED(hr)) hr = settings->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, callback_.Get());
         // No decoder, colour converter or video processor may be inserted:
         // frames must arrive exactly as the Capture Card produced them.
-        settings->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, TRUE);
-        settings->SetUINT32(MF_LOW_LATENCY, TRUE);
+        if (SUCCEEDED(hr)) hr = settings->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, TRUE);
+        if (SUCCEEDED(hr)) hr = settings->SetUINT32(MF_LOW_LATENCY, TRUE);
         ComPtr<IMFSourceReader> reader;
-        HRESULT hr = MFCreateSourceReaderFromMediaSource(device_.Get(), settings.Get(), &reader);
+        if (SUCCEEDED(hr)) hr = MFCreateSourceReaderFromMediaSource(device_.Get(), settings.Get(), &reader);
         if (FAILED(hr)) {
             Log("Source: could not create the Source Reader hr=0x%08lX", static_cast<unsigned long>(hr));
             return Failure(SourceStage::Reader, hr);
@@ -488,8 +539,8 @@ private:
         }
         const Colour colour = ColourOf(current.Get());
         Detail("Source: chosen mode #%zu %s", *chosen, Describe(current.Get()).c_str());
-        Detail("Source: colour from the media type: range %s, matrix %s", RangeName(colour.range),
-               MatrixName(colour.matrix));
+        Detail("Source: colour from the media type: range %s, matrix %s", RangeText(current.Get(), colour.range).c_str(),
+               MatrixText(current.Get(), colour.matrix).c_str());
 
         // Opened goes out before the first read, whose failure may be reported
         // from the reader's thread at once.

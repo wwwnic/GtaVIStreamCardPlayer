@@ -22,7 +22,17 @@ enum class SourceStage {
     Read,       // a later frame request: the stream was lost
 };
 
-const char* NameOf(SourceStage stage);
+inline const char* NameOf(SourceStage stage) {
+    switch (stage) {
+    case SourceStage::Enumerate: return "listing devices";
+    case SourceStage::Open: return "opening the device";
+    case SourceStage::Reader: return "creating the reader";
+    case SourceStage::Mode: return "setting the mode";
+    case SourceStage::FirstRead: return "first read";
+    case SourceStage::Read: return "reading";
+    }
+    return "?";
+}
 
 // What the Source tells the rest of the Viewer. It never draws anything.
 struct SourceEvent {
@@ -92,7 +102,7 @@ public:
     // The mode capturing now; empty when not capturing.
     virtual std::optional<CaptureMode> CurrentMode() const = 0;
 
-    // Any thread.
+    // Like every call here: from the thread that calls Start and Stop.
     virtual Probe TakeProbe() = 0;
 };
 

@@ -29,8 +29,11 @@ std::optional<double> ModeCost(const CaptureMode& mode) {
 
 std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNames) {
     if (deviceNames.empty()) return std::nullopt;
-    for (size_t i = 0; i < deviceNames.size(); i++) {
-        if (ContainsIgnoringCase(deviceNames[i], L"gc553")) return i;
+    // The Pro itself first, then another card of its family, then anything.
+    for (std::wstring_view model : {L"gc553pro", L"gc553 pro", L"gc553"}) {
+        for (size_t i = 0; i < deviceNames.size(); i++) {
+            if (ContainsIgnoringCase(deviceNames[i], model)) return i;
+        }
     }
     return 0;
 }
@@ -70,10 +73,12 @@ std::optional<size_t> ChooseCaptureDevice(std::span<const std::wstring> deviceNa
 
 namespace {
 
+// Same size and the same rate, however the fraction is written (60/1, 60000/1000).
 bool HasMjpegTwin(std::span<const CaptureMode> modes, const CaptureMode& mode) {
     for (const CaptureMode& other : modes) {
         if (other.motionJpeg && other.width == mode.width && other.height == mode.height &&
-            other.fpsNumerator == mode.fpsNumerator && other.fpsDenominator == mode.fpsDenominator) {
+            other.fpsDenominator != 0 &&
+            uint64_t{other.fpsNumerator} * mode.fpsDenominator == uint64_t{mode.fpsNumerator} * other.fpsDenominator) {
             return true;
         }
     }

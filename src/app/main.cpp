@@ -590,6 +590,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     HWND window = CreateViewerWindow(instance, menuBar.Handle());
     if (!window) {
         gp::Log("Could not create the window (error %lu)", GetLastError());
+        if (SUCCEEDED(comResult)) CoUninitialize();
+        gp::LogClose();
         return 1;
     }
     // Always windowed at launch, even if it was closed in fullscreen.
@@ -610,6 +612,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         ApplyAllSettings(app);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
+        // Without a graphics device yet, the Presenter keeps trying by itself.
         if (!app.presenter.Start(window)) gp::Log("No Presenter: the window stays black");
         app.feed.Start();  // shows Loading, then the Feed or why not; recovers by itself
         app.keepAwake.Start(window);  // logs display on / off

@@ -13,7 +13,7 @@ namespace gp {
 
 // Owns the Direct3D 11 device and the flip-model swap chain, and shows frames
 // in the window's Video Area: converted from YUV to RGB by its own shader,
-// fitted 16:9 with black around it.
+// fitted in the capture mode's shape (16:9 for 1080p) with black around it.
 //
 // It presents on its own thread. Submit only leaves the frame in a
 // single-frame slot and wakes that thread, so capture never waits for the GPU
@@ -25,7 +25,7 @@ namespace gp {
 class Presenter {
 public:
     struct Stats {
-        uint32_t presented = 0;          // frames shown
+        uint32_t presented = 0;          // frames shown (Present succeeded)
         uint32_t replaced = 0;           // frames overtaken by a newer one before being shown
         double averageLatencyMs = 0.0;   // arrival at the Source -> Present returned
         double worstLatencyMs = 0.0;
@@ -37,14 +37,19 @@ public:
     Presenter& operator=(const Presenter&) = delete;
 
     // Creates the device and swap chain for this window and starts the
-    // presenting thread. Call on the window's thread. Returns false (reason in
-    // the debug log) if Direct3D cannot be set up; the other calls are then
-    // harmless no-ops.
+    // presenting thread. Call on the window's thread. If Direct3D cannot be
+    // set up now (reason in the debug log) the thread keeps trying once a
+    // second, as after a device loss. Returns false only if the thread cannot
+    // be started; the other calls are then harmless no-ops.
     bool Start(HWND window);
 
     // Stops the thread and releases the device. Call on the window's thread,
-    // while the window still exists. Safe to call when not started.
+    // while the window still exists. Safe to call when not started. Answers
+    // the thread's window messages while it waits.
     void Stop();
+
+    // "Any thread" below: any thread, but not while Start or Stop runs (stop
+    // whatever feeds the Presenter first).
 
     // Hands over a frame to show. Any thread; never blocks on the GPU.
     void Submit(TimedFrame frame);

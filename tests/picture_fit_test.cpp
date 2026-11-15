@@ -26,6 +26,15 @@ TEST_CASE("the picture never exceeds the Video Area when sizes do not divide eve
     CHECK(r.y == (1000 - r.height) / 2);
 }
 
+TEST_CASE("a picture of another shape is fitted in that shape, as the Presenter asks for a capture mode's size") {
+    // 720x576 (5:4) in a 16:9 Video Area: bars left and right.
+    CHECK(FitPicture(1280, 720, 720, 576) == PictureRect{190, 0, 900, 720});
+    // 2560x1080 (21:9) in a 16:9 Video Area: bars above and below.
+    CHECK(FitPicture(1280, 720, 2560, 1080) == PictureRect{0, 90, 1280, 540});
+    // 1920x1080 is 16:9 whatever the numbers.
+    CHECK(FitPicture(1600, 1000, 1920, 1080) == FitPicture(1600, 1000));
+}
+
 TEST_CASE("an empty Video Area gives an empty picture") {
     CHECK(FitPicture(0, 0) == PictureRect{});
     CHECK(FitPicture(500, 0) == PictureRect{});

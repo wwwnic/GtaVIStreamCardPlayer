@@ -22,18 +22,6 @@ bool IsCardBusy(uint32_t code) {
 
 }  // namespace
 
-const char* NameOf(SourceStage stage) {
-    switch (stage) {
-    case SourceStage::Enumerate: return "listing devices";
-    case SourceStage::Open: return "opening the device";
-    case SourceStage::Reader: return "creating the reader";
-    case SourceStage::Mode: return "setting the mode";
-    case SourceStage::FirstRead: return "first read";
-    case SourceStage::Read: return "reading";
-    }
-    return "?";
-}
-
 const char* NameOf(VideoAreaState state) {
     switch (state) {
     case VideoAreaState::Loading: return "Loading";
