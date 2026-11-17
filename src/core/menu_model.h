@@ -48,6 +48,7 @@ struct ViewMenu {
     MenuItem fullscreen;
     MenuItem alwaysOnTop;
     MenuItem generation;
+    MenuItem sharpUpscale;
     MenuItem vsync;
     MenuItem fpsCounter;  // in step with the F key
 };

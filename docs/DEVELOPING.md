@@ -36,6 +36,17 @@ At 4x a second FRC processes the doubled stream. It receives the middle frame an
 
 The developer-only command-line switch `--frames-per-unique 2` or `--frames-per-unique 4` repeats each picture at equal intervals. The presenting thread asks the GPU-side `FrameGenerator` for intermediate pictures and draws the overlays onto each output. The pure `FrameSchedule` uses the last two Unique Frame arrival times for spacing and anchors all deadlines to the first present. A high-resolution waitable timer wakes the presenting thread. Text, resize and menu wake-ups recheck the same deadline. A new arrival supersedes an unfinished sequence. Starts, Feed restarts, device rebuilds, picture-size changes and unsuitable arrival intervals show one frame immediately. During timed sequences the Presenter uses unsynchronised presents. The once-per-second `Timed frames` log counts Unique Frames, successful presents, early drops and late skips, and records the worst lateness and Present call duration. The switch is never saved.
 
+## Sharp Upscale
+
+Press U or select View > Sharp upscale to toggle the remembered choice (off on first use).
+For an enlarged Feed the Presenter runs FSR 1 EASU directly from each finished picture
+to a texture matching the fitted picture rectangle. RCAS sharpens that texture pixel for
+pixel at 0.2 stops below maximum. Both passes use the same display-encoded RGB as the
+plain stretch. Generated Frames follow the same path and the text overlay is drawn last.
+Native-size and smaller pictures use the smooth path. The optional D3D11 shaders require
+no AMF runtime. An `Upscale: FSR 1 on/off` transition logs the Feed and shown sizes.
+Compilation or resource failure logs the reason and falls back to smooth stretching.
+
 ## Lossless Scaling
 
 The user's one-time setup guide is `docs/lossless-scaling-setup.md`, written in the user's vertical style (very short lines, one idea per line, no bullets); keep that style when editing it. What keeps the window a good target (ticket 10): the title is set once to exactly "GamePlayer" and never changed (no `SetWindowText`; debug numbers go to the log or the FPS counter, never the title); the exe is `GamePlayer.exe`; DXGI Alt+Enter is disabled and nothing calls `SetFullscreenState`; the Presenter presents only for a new Unique Frame, a resize, a device rebuild, or a text that appears or ends (the FPS counter never presents; the Frame rate override "60 fps (every frame)" passes Repeated Frames on too, so Lossless Scaling then sees 60); fullscreen uses `HWND_TOP`, never topmost, and hides the cursor after 2 s.

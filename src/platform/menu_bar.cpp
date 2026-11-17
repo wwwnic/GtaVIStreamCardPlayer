@@ -77,6 +77,7 @@ MenuBar::MenuBar() {
     Append(view_, kMenuFullscreen, view.fullscreen, false);
     Append(view_, kMenuAlwaysOnTop, view.alwaysOnTop, false);
     Append(view_, kMenuGeneration, view.generation, false);
+    Append(view_, kMenuSharpUpscale, view.sharpUpscale, false);
     Append(view_, kMenuVsync, view.vsync, false);
     Append(view_, kMenuFpsCounter, view.fpsCounter, false);
 
@@ -122,6 +123,7 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuFullscreen, view.fullscreen);
     Update(view_, kMenuAlwaysOnTop, view.alwaysOnTop);
     Update(view_, kMenuGeneration, view.generation);
+    Update(view_, kMenuSharpUpscale, view.sharpUpscale);
     Update(view_, kMenuVsync, view.vsync);
     Update(view_, kMenuFpsCounter, view.fpsCounter);
 }

@@ -1,4 +1,5 @@
 #include "platform/presenter.h"
+#include "platform/sharp_upscale_shader.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -229,6 +230,7 @@ public:
     }
 
     // No repaint: an extra present would count as a game frame for Lossless Scaling.
+    void SetSharpUpscale(bool on) { sharpUpscale_ = on; }
     void SetVsync(bool on) { vsync_ = on; }
 
     void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
@@ -355,9 +357,10 @@ private:
         return vertexShader_ && convertShader_ && showShader_ && constants_ && sampler_;
     }
 
-    ComPtr<ID3DBlob> Compile(const char* entry, const char* target) {
+    ComPtr<ID3DBlob> Compile(const char* entry, const char* target,
+                             const char* source = kShaders, size_t size = sizeof kShaders - 1) {
         ComPtr<ID3DBlob> code, errors;
-        const HRESULT hr = D3DCompile(kShaders, sizeof kShaders - 1, "presenter", nullptr, nullptr, entry, target,
+        const HRESULT hr = D3DCompile(source, size, "presenter", nullptr, nullptr, entry, target,
                                       D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
         if (FAILED(hr)) {
             Log("Presenter: shader %s failed to compile hr=0x%08lX: %s", entry, static_cast<unsigned long>(hr),
@@ -397,6 +400,11 @@ private:
         plane0_.Reset(); plane0View_.Reset(); plane1_.Reset(); plane1View_.Reset();
         picture_.Reset(); pictureTarget_.Reset(); pictureView_.Reset();
         havePicture_ = false;
+        UpscaleUsage(false, scaledWidth_, scaledHeight_);
+        scaledTarget_.Reset(); scaledView_.Reset();
+        scaledWidth_ = scaledHeight_ = 0;
+        easuShader_.Reset(); rcasShader_.Reset();
+        triedUpscaleShaders_ = false;
         vertexShader_.Reset(); convertShader_.Reset(); showShader_.Reset();
         constants_.Reset(); sampler_.Reset();
         backBufferView_.Reset();
@@ -733,6 +741,42 @@ private:
     // mode's shape (16:9 for every 16:9 mode), present now. False: not presented.
     // `shown`: the picture, or a Generated Frame of the same size. The texts
     // are drawn over whichever it is, never into it.
+    bool CreateUpscaleShader(const char* entry, ComPtr<ID3D11PixelShader>& shader) {
+        auto code = Compile(entry, "ps_5_0", kSharpUpscaleShaders, sizeof kSharpUpscaleShaders - 1);
+        if (!code) return false;
+        HRESULT hr = device_->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &shader);
+        if (FAILED(hr)) Log("Upscale: %s shader creation failed hr=0x%08lX", entry, static_cast<unsigned long>(hr));
+        return SUCCEEDED(hr);
+    }
+
+    bool PrepareUpscale(PictureRect fit) {
+        if (!triedUpscaleShaders_) {
+            triedUpscaleShaders_ = true;
+            if (CreateUpscaleShader("Easu", easuShader_)) CreateUpscaleShader("Rcas", rcasShader_);
+        }
+        if (!rcasShader_) return false;
+        if (scaledWidth_ == fit.width && scaledHeight_ == fit.height) return scaledTarget_ != nullptr;
+        scaledTarget_.Reset();
+        scaledView_.Reset();
+        scaledWidth_ = fit.width;
+        scaledHeight_ = fit.height;
+        ComPtr<ID3D11Texture2D> texture;
+        if (!CreateTexture(fit.width, fit.height, DXGI_FORMAT_B8G8R8A8_UNORM, true, texture, scaledView_) ||
+            FAILED(device_->CreateRenderTargetView(texture.Get(), nullptr, &scaledTarget_))) {
+            Log("Upscale: cannot create %dx%d intermediate texture or views; using smooth stretch", fit.width, fit.height);
+            scaledView_.Reset();
+            return false;
+        }
+        return true;
+    }
+
+    void UpscaleUsage(bool active, int width, int height) {
+        if (active == usingUpscale_) return;
+        usingUpscale_ = active;
+        Log("Upscale: FSR 1 %s (picture %ux%u shown at %dx%d)", active ? "on" : "off",
+            pictureWidth_, pictureHeight_, width, height);
+    }
+
     bool ShowAndPresent(ID3D11ShaderResourceView* shown) {
         // Signalled when the swap chain can take a frame; keeps at most one in flight.
         if (latencyWaitable_) WaitForSingleObjectEx(latencyWaitable_, 100, FALSE);
@@ -748,15 +792,30 @@ private:
                                              static_cast<float>(fit.width), static_cast<float>(fit.height), 0, 1};
             ID3D11ShaderResourceView* picture = shown;
             ID3D11SamplerState* sampler = sampler_.Get();
-            context_->RSSetViewports(1, &viewport);
             context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             context_->VSSetShader(vertexShader_.Get(), nullptr, 0);
-            context_->PSSetShader(showShader_.Get(), nullptr, 0);
+            const bool sharp = UseSharpUpscale(sharpUpscale_, pictureWidth_, pictureHeight_, fit) && PrepareUpscale(fit);
+            UpscaleUsage(sharp, fit.width, fit.height);
+            if (sharp) {
+                const D3D11_VIEWPORT whole = {0, 0, viewport.Width, viewport.Height, 0, 1};
+                ID3D11RenderTargetView* scaled = scaledTarget_.Get();
+                context_->OMSetRenderTargets(1, &scaled, nullptr);
+                context_->RSSetViewports(1, &whole);
+                context_->PSSetShader(easuShader_.Get(), nullptr, 0);
+                context_->PSSetShaderResources(2, 1, &shown);
+                context_->Draw(3, 0);
+                context_->OMSetRenderTargets(1, &target, nullptr);
+                picture = scaledView_.Get();
+            }
+            context_->RSSetViewports(1, &viewport);
+            context_->PSSetShader(sharp ? rcasShader_.Get() : showShader_.Get(), nullptr, 0);
             context_->PSSetSamplers(0, 1, &sampler);
             context_->PSSetShaderResources(2, 1, &picture);
             context_->Draw(3, 0);
             ID3D11ShaderResourceView* none = nullptr;
             context_->PSSetShaderResources(2, 1, &none);  // free the picture for pass 1
+        } else {
+            UpscaleUsage(false, scaledWidth_, scaledHeight_);
         }
         context_->OMSetRenderTargets(0, nullptr, nullptr);
         TextOverlay::Texts texts;
@@ -792,6 +851,12 @@ private:
     std::atomic<bool> resized_{false};
     std::atomic<bool> repaint_{false};
     std::atomic<bool> pictureVisible_{true};
+    ComPtr<ID3D11PixelShader> easuShader_, rcasShader_;
+    ComPtr<ID3D11RenderTargetView> scaledTarget_;
+    ComPtr<ID3D11ShaderResourceView> scaledView_;
+    int scaledWidth_ = 0, scaledHeight_ = 0;
+    bool triedUpscaleShaders_ = false, usingUpscale_ = false;
+    std::atomic<bool> sharpUpscale_{false};
     std::atomic<bool> vsync_{false};
     struct SubmittedFrame {
         FramePtr frame;
@@ -867,6 +932,7 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
     impl_->ShowTextWithNextFrame(place, std::move(text));
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
+void Presenter::SetSharpUpscale(bool on) { impl_->SetSharpUpscale(on); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
     impl_->SetFrameGenerator(std::move(generator));

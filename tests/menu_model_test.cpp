@@ -242,3 +242,16 @@ TEST_CASE("View shows Frame generation, its key, and whether V-sync is available
     CHECK_FALSE(view.generation.enabled);
     CHECK(view.generation.label.find(L"not available") != std::wstring::npos);
 }
+
+TEST_CASE("Sharp upscale toggles once per press and the View and Hotkeys menus describe it") {
+    gp::ViewerSettings s;
+    CHECK_FALSE(gp::ViewItems(s, false).sharpUpscale.checked);
+    CHECK(gp::ToggleSharpUpscale(s, false));
+    CHECK_FALSE(gp::ToggleSharpUpscale(s, true));
+    const auto item = gp::ViewItems(s, false).sharpUpscale;
+    CHECK(item.checked);
+    CHECK(item.label == L"Sharp upscale\tU");
+    CHECK(gp::HotkeysText().find(L"U\tSharp upscale") != std::wstring::npos);
+    CHECK(gp::ToggleSharpUpscale(s, false));
+    CHECK_FALSE(s.sharpUpscale);
+}
