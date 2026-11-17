@@ -4,7 +4,11 @@
 
 **Blocked by:** 02 (Frame Generation 2x).
 
-**Status:** ready-for-agent
+**Status:** done
+
+## Validation recorded at integration
+
+All 322 unit tests passed. With 4x enabled on a live 720p60 Feed, the Viewer reached 120 presents per second with the Game Rate fixed at 30 fps and 240 with it fixed at 60 fps. The user reported a successful manual test of `142e7f7` without listing individual checklist results.
 
 ## Context
 
