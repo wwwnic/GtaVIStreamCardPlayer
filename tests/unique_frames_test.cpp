@@ -543,16 +543,36 @@ TEST_CASE("shown rate counts all successful presents over two seconds") {
     for (int t = 0; t < 2000; t += 5) frames.Presented(t);
     CHECK(frames.RateAt(2000) == 200);
     CHECK(frames.RateAt(4000) == 0);
-    frames.Reset();
-    CHECK(frames.RateAt(2000) == 0);
+    frames.Reset(4000);
+    CHECK(frames.RateAt(4000) == 0);
+}
+
+TEST_CASE("shown rate after a factor change measures only the new rate") {
+    gp::PresentedFrames frames;
+    for (int t = 0; t < 2000; t += 16) frames.Presented(t);  // about 60 per second (2x at 30)
+    CHECK(frames.RateAt(2000) == 62);
+    frames.Reset(2000);  // now 4x at 30: 120 per second
+    for (int t = 2000; t < 2500; t += 8) frames.Presented(t);
+    CHECK(frames.RateAt(2500) == 126);  // half a second in, not a mix near 90
+    for (int t = 2504; t < 3000; t += 8) frames.Presented(t);
+    CHECK(frames.RateAt(3000) == 125);
+    for (int t = 3000; t < 4000; t += 8) frames.Presented(t);
+    CHECK(frames.RateAt(4000) == 125);  // full window again
+}
+
+TEST_CASE("shown rate right after a reset is not inflated by a tiny window") {
+    gp::PresentedFrames frames;
+    frames.Reset(0);
+    frames.Presented(1);
+    CHECK(frames.RateAt(2) == 4);  // one present over the shortest window, 250 ms
 }
 
 TEST_CASE("chosen generation that is not running keeps the original counter") {
-    SUBCASE("off") {}
-    SUBCASE("starting") {}
-    SUBCASE("failed") {}
-    SUBCASE("unavailable") {}
+    // Off, starting, failed and unavailable all leave the running factor at 0.
     CHECK(gp::FpsCounterText({60,30,30,true}, 60, 0) == L"30 FPS");
+    CHECK(gp::FpsCounterText({60,30,30,true}, 60, 0, 30) == L"30 FPS");
+    // A factor of 1 is not generation either.
+    CHECK(gp::FpsCounterText({60,30,30,true}, 30, 1, 30) == L"30 FPS");
     CHECK(gp::FpsCounterText({60,30,30,false}, 60, 0).empty());
 }
 TEST_CASE("generation counter stays blank through the Feed warm-up") {

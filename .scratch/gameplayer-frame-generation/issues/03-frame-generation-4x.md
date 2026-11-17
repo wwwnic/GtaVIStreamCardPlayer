@@ -51,7 +51,7 @@ Factors other than 2x and 4x; an automatic limit; a generator that makes frames 
 - [ ] The four frames of a sequence are evenly spaced and in order; no late output is shown.
 - [ ] A Unique Frame where a quarter frame is missing is shown with the middle frame only.
 - [ ] Switching 2x to 4x and back while playing never shows a wrong or old picture.
-- [ ] After a pause, a Feed restart or a size change, 4x picks up again by itself within two Unique Frames.
+- [ ] After a pause or a Feed restart, 4x picks up again by itself within two Unique Frames. After a size change, 4x picks up on the first Unique Frame once the driver's new session is ready (setup time is the driver's; measured 131.8 ms, 4x on input 3 at 720p -> 1080p). Amended after review: the extra frame is not visible and is accepted.
 - [ ] If the second FRC cannot be created, 4x runs as 2x, says so once in the log, and the screen shows what really runs.
 - [ ] 4x is remembered across restarts.
 - [ ] Unit tests cover: the three-step cycle; the settings round trip for 4x; "three or one, never two"; the rule that restarts the second FRC's history.

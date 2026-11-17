@@ -83,4 +83,4 @@ Fresh MSVC build: 338 tests / 6594 assertions pass. UI verification observed bot
 readable at actual 480x270 and fullscreen, About reporting 4x and measured rates, native
 U toggles logging both choices, FSR 1 switching on for 720p -> 1920x1080, and clean exit.
 Hardware evidence in the ticket worktree: `build/evidence/review-resolution-ui.log` and
-`review-recovery-final.log`. The final 4x counter read Game 30 / Shown 119–120.
+`review-recovery-final.log`. The final 4x counter read Game 30 / Shown 119-120.

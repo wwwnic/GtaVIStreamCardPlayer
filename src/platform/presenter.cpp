@@ -397,7 +397,7 @@ private:
         // What the generator made is on this device, and the Unique Frame
         // before a rebuild is not one to generate from.
         if (generator_) generator_->ReleaseDevice();
-        { std::lock_guard lock(statsMutex_); presentation_.runningFactor = 0; }
+        SetRunningFactor(0);
         schedule_.Forget();
         overlay_.Detach();
         if (latencyWaitable_) CloseHandle(latencyWaitable_);
@@ -579,7 +579,7 @@ private:
         if (schedule_.InProgress()) drawWaiting_ = true;
         generator_->ReleaseDevice();
         generator_.reset();
-        { std::lock_guard lock(statsMutex_); presentation_.runningFactor = 0; }
+        SetRunningFactor(0);
         schedule_.Forget();
         drawLead_ = 0;
     }
@@ -605,11 +605,17 @@ private:
             DropGenerator();
             return;
         }
-        {
-            std::lock_guard lock(statsMutex_);
-            presentation_.runningFactor = generator_->RunningFactor();
-        }
+        SetRunningFactor(generator_->RunningFactor());
         schedule_.Begin(generated);
+    }
+
+    // A new factor is a new present rate: the Shown rate starts measuring
+    // again rather than mixing two seconds of the old rate with the new.
+    void SetRunningFactor(int factor) {
+        std::lock_guard lock(statsMutex_);
+        if (presentation_.runningFactor == factor) return;
+        presentation_.runningFactor = factor;
+        presentedFrames_.Reset(GetTickCount64());
     }
 
     // False: no back buffer to draw into, and Present, which reports a lost
