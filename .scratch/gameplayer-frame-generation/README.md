@@ -29,7 +29,7 @@ The user judged the picture good at 2x and 4x.
 | 02 | Frame Generation 2x | 01 | done |
 | 03 | Frame Generation 4x | 02 | done |
 | 04 | Sharp Upscale | None | done |
-| 05 | Counter on two lines, About, guides | 02, 03, 04 | implemented; user checks pending |
+| 05 | Counter on two lines, About, guides | 02, 03, 04 | done |
 
 ## Order of work
 
@@ -59,5 +59,4 @@ only one generator. Pure tests cover the text, rate history, About states and mi
 480x270 layout. A private-settings 20-second AMD hardware smoke at 4x and forced 30 fps
 observed Game 30 / Shown 119, adjacent generation lines 120 presents/s, 90 generated
 from 30 attempts, no stale outputs or late skips, and clean exit. A second 2x smoke observed Game 30 / Shown 60 and 60 presents/s, with zero late outputs.
-All 333 tests / 6572 assertions pass. Display readability,
-About accuracy by eye and an evening of normal G/U play remain user checks.
+All 333 tests / 6572 assertions pass. The user reported that the required manual test passed on 51502c5.
