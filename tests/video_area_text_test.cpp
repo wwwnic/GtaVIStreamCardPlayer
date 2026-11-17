@@ -91,3 +91,13 @@ TEST_CASE("the FPS counter in the corner is the smallest text, still readable") 
     CHECK(corner.headline < SizeText(TextPlace::Top, 1920, 1080).headline);
     CHECK(SizeText(TextPlace::TopLeft, 320, 180).headline >= TextSizes::kMinHeadline);
 }
+
+TEST_CASE("two counter lines fit the smallest Video Area and fullscreen") {
+    for (const auto [width, height] : {std::pair{480,270}, std::pair{1920,1080}}) {
+        const auto sizes = SizeText(TextPlace::TopLeft, width, height);
+        CHECK(sizes.headline >= 14);
+        // Conservative allowance: 1.5 font heights per line, one font width per character.
+        CHECK(sizes.margin + 3 * sizes.headline + sizes.detail < height);
+        CHECK(9 * sizes.headline < sizes.maxWidth); // "Shown 240"
+    }
+}

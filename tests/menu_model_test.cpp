@@ -255,3 +255,37 @@ TEST_CASE("Sharp upscale toggles once per press and the View and Hotkeys menus d
     CHECK(gp::ToggleSharpUpscale(s, false));
     CHECK_FALSE(s.sharpUpscale);
 }
+
+TEST_CASE("About reports actual generation and Sharp Upscale states") {
+    gp::AboutInfo info;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: off"));
+    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: off"));
+    info.presentation = {4, 240, true, 1280, 720, 1920, 1080};
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: 4x"));
+    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: on (1280x720 -> 1920x1080)"));
+    info.presentation.runningFactor = 2;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: 2x"));
+    info.presentation.runningFactor = 0;
+    info.generationAvailability = gp::GenerationAvailability::MissingRuntime;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (needs an AMD graphics card and driver)"));
+    info.generationAvailability = gp::GenerationAvailability::Failed;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (not available this session)"));
+}
+
+TEST_CASE("About distinguishes starting generation from off and unused upscale") {
+    gp::AboutInfo info;
+    info.generationChosen = true;
+    info.sharpUpscaleChosen = true;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (starting)"));
+    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: off (not in use for this picture)"));
+}
+
+TEST_CASE("About with generation labels the override as Game and all presents as Shown") {
+    gp::AboutInfo info;
+    info.frameRate = gp::GameRateOverride::Fps30;
+    info.rates = {60,60,30,true};
+    info.presentation = {4,120};
+    CHECK(Contains(gp::AboutText(info), L"Game: 30 fps (Frame rate set to 30)"));
+    CHECK(Contains(gp::AboutText(info), L"Shown: 120 fps (all frames presented)"));
+    CHECK_FALSE(Contains(gp::AboutText(info), L"Shown: 30 fps"));
+}

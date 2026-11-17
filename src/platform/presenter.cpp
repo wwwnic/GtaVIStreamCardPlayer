@@ -200,6 +200,13 @@ public:
         SetEvent(wake_);
     }
 
+    PresentationInfo Presentation() {
+        std::lock_guard lock(statsMutex_);
+        auto info = presentation_;
+        info.shownRate = presentedFrames_.RateAt(GetTickCount64());
+        return info;
+    }
+
     Stats TakeStats() {
         std::lock_guard lock(statsMutex_);
         Stats taken = stats_;
@@ -389,6 +396,7 @@ private:
         // What the generator made is on this device, and the Unique Frame
         // before a rebuild is not one to generate from.
         if (generator_) generator_->ReleaseDevice();
+        { std::lock_guard lock(statsMutex_); presentation_.runningFactor = 0; }
         schedule_.Forget();
         overlay_.Detach();
         if (latencyWaitable_) CloseHandle(latencyWaitable_);
@@ -492,6 +500,10 @@ private:
 
             const int64_t drawBegan = QpcNow();
             const bool presented = ShowAndPresent(picture);
+            if (presented) {
+                std::lock_guard lock(statsMutex_);
+                presentedFrames_.Presented(GetTickCount64());
+            }
             if (presented && generator_) generator_->NotePresented();
             if (due) {
                 schedule_.Presented(presentBegan_, presented);
@@ -565,6 +577,7 @@ private:
         if (schedule_.InProgress()) drawWaiting_ = true;
         generator_->ReleaseDevice();
         generator_.reset();
+        { std::lock_guard lock(statsMutex_); presentation_.runningFactor = 0; }
         schedule_.Forget();
         drawLead_ = 0;
     }
@@ -589,6 +602,10 @@ private:
             Log("Presenter: the frame generator cannot be used; each Unique Frame is shown at once, alone");
             DropGenerator();
             return;
+        }
+        {
+            std::lock_guard lock(statsMutex_);
+            presentation_.runningFactor = generator_->RunningFactor();
         }
         schedule_.Begin(generated);
     }
@@ -771,6 +788,14 @@ private:
     }
 
     void UpscaleUsage(bool active, int width, int height) {
+        {
+            std::lock_guard lock(statsMutex_);
+            presentation_.sharpUpscale = active;
+            presentation_.feedWidth = pictureWidth_;
+            presentation_.feedHeight = pictureHeight_;
+            presentation_.shownWidth = width;
+            presentation_.shownHeight = height;
+        }
         if (active == usingUpscale_) return;
         usingUpscale_ = active;
         Log("Upscale: FSR 1 %s (picture %ux%u shown at %dx%d)", active ? "on" : "off",
@@ -869,6 +894,8 @@ private:
     TextOverlay overlay_;  // presenting thread (and Start/Stop)
 
     std::mutex statsMutex_;
+    PresentationInfo presentation_;
+    PresentedFrames presentedFrames_;
     Stats stats_;
     double latencySumMs_ = 0.0;
     TimedFrameStats timedStats_;
@@ -937,6 +964,7 @@ void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
     impl_->SetFrameGenerator(std::move(generator));
 }
+PresentationInfo Presenter::Presentation() { return impl_->Presentation(); }
 Presenter::Stats Presenter::TakeStats() { return impl_->TakeStats(); }
 Presenter::TimedStats Presenter::TakeTimedStats() { return impl_->TakeTimedStats(); }
 

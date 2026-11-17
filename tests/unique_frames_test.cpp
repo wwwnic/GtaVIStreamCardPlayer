@@ -528,3 +528,34 @@ TEST_CASE("with tolerance zero the same noisy repeat is a Unique Frame") {
     CHECK(feed.emitted.size() == 2);
     CHECK(feed.processor.Totals().repeatedNear == 0);
 }
+
+TEST_CASE("Frame Generation counter uses measured presents without a refresh cap") {
+    CHECK(gp::FpsCounterText({60,30,30,true}, 60, 2) == L"Game 30\nShown 60");
+    CHECK(gp::FpsCounterText({60,30,30,true}, 120, 4) == L"Game 30\nShown 120");
+    CHECK(gp::FpsCounterText({60,60,60,true}, 240, 4) == L"Game 60\nShown 240");
+    CHECK(gp::FpsCounterText({60,30,30,true}, 57, 0) == L"30 FPS"); // off, starting or failed
+    CHECK(gp::FpsCounterText({60,30,30,false}, 120, 4).empty());
+}
+
+#include "core/presentation_info.h"
+TEST_CASE("shown rate counts all successful presents over two seconds") {
+    gp::PresentedFrames frames;
+    for (int t = 0; t < 2000; t += 5) frames.Presented(t);
+    CHECK(frames.RateAt(2000) == 200);
+    CHECK(frames.RateAt(4000) == 0);
+    frames.Reset();
+    CHECK(frames.RateAt(2000) == 0);
+}
+
+TEST_CASE("chosen generation that is not running keeps the original counter") {
+    SUBCASE("off") {}
+    SUBCASE("starting") {}
+    SUBCASE("failed") {}
+    SUBCASE("unavailable") {}
+    CHECK(gp::FpsCounterText({60,30,30,true}, 60, 0) == L"30 FPS");
+    CHECK(gp::FpsCounterText({60,30,30,false}, 60, 0).empty());
+}
+TEST_CASE("generation counter stays blank through the Feed warm-up") {
+    CHECK(gp::FpsCounterText({60,30,30,false}, 60, 2).empty());
+    CHECK(gp::FpsCounterText({60,30,30,false}, 120, 4).empty());
+}

@@ -122,7 +122,29 @@ std::wstring AboutText(const AboutInfo& info) {
     text += L"\nGame Rate: " + std::to_wstring(info.rates.gameRate) + L" fps (Unique Frames)";
     if (info.frameRate != GameRateOverride::Auto) {
         const std::wstring setting(NameOf(info.frameRate), NameOf(info.frameRate) + std::strlen(NameOf(info.frameRate)));
-        text += L"\nShown: " + std::to_wstring(info.rates.presentedRate) + L" fps (Frame rate set to " + setting + L")";
+        text += std::wstring(info.presentation.runningFactor > 1 ? L"\nGame: " : L"\nShown: ") +
+                std::to_wstring(info.rates.presentedRate) + L" fps (Frame rate set to " + setting + L")";
+    }
+    if (info.presentation.runningFactor > 1)
+        text += L"\nShown: " + std::to_wstring(info.presentation.shownRate) + L" fps (all frames presented)";
+    text += L"\nFrame Generation: ";
+    if (info.presentation.runningFactor > 1) {
+        text += std::to_wstring(info.presentation.runningFactor) + L"x";
+    } else {
+        text += L"off";
+        if (info.generationAvailability == GenerationAvailability::MissingRuntime)
+            text += L" (needs an AMD graphics card and driver)";
+        else if (info.generationAvailability == GenerationAvailability::Failed)
+            text += L" (not available this session)";
+        else if (info.generationChosen) text += L" (starting)";
+    }
+    text += L"\nSharp Upscale: ";
+    const auto& p = info.presentation;
+    if (p.sharpUpscale) {
+        text += L"on (" + SizeText(p.feedWidth, p.feedHeight) + L" -> " +
+                SizeText(p.shownWidth, p.shownHeight) + L")";
+    } else {
+        text += info.sharpUpscaleChosen ? L"off (not in use for this picture)" : L"off";
     }
     return text;
 }

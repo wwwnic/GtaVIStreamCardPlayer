@@ -157,8 +157,9 @@ private:
 
 // The on-screen FPS counter's text: the presented rate, e.g. "30 FPS". That is
 // what is shown (and what Lossless Scaling counts): the Game Rate on Auto, the
-// override's rate otherwise. Empty (nothing shown) until the rates are warm, so
+// override's rate otherwise. While runningFactor > 1, adds a second line with
+// the measured successful-present rate (no refresh cap). Empty until warm, so
 // a start or restart never reads misleadingly low.
-std::wstring FpsCounterText(FrameRates rates);
+std::wstring FpsCounterText(FrameRates rates, int shownRate = 0, int runningFactor = 0);
 
 }  // namespace gp

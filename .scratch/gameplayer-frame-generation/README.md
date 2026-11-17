@@ -29,7 +29,7 @@ The user judged the picture good at 2x and 4x.
 | 02 | Frame Generation 2x | 01 | done |
 | 03 | Frame Generation 4x | 02 | done |
 | 04 | Sharp Upscale | None | done |
-| 05 | Counter on two lines, About, guides | 02, 03, 04 | ready-for-agent |
+| 05 | Counter on two lines, About, guides | 02, 03, 04 | implemented; user checks pending |
 
 ## Order of work
 
@@ -48,3 +48,16 @@ Longest chain: 01, 02, 03, 05.
 - Only one program can use the Capture Card, and only one copy of GamePlayer runs. A smoke run does nothing while the user's copy is open. Never close the user's copy. Smoke runs use `--settings` with their own file.
 - The user's C: drive is nearly full. Keep build output and downloads on the repo's drive.
 - Excluded from this sprint everywhere: an automatic limit on the Generation Factor, frame generation on non-AMD graphics cards, a strength setting for the Sharp Upscale, a 480p mode, HDR, controlling or detecting Lossless Scaling, formal latency measurement.
+
+## Ticket 05 validation
+
+The counter now keeps the original real-frame rate as Game and measures all successful
+presents as Shown while generation is running. Startup/failure use the original line;
+warm-up, state-message hiding and no-counter-present rules remain. About reports the
+actual factor and FSR 1 usage/sizes. The setup guide starts with G/U and explains using
+only one generator. Pure tests cover the text, rate history, About states and minimum
+480x270 layout. A private-settings 20-second AMD hardware smoke at 4x and forced 30 fps
+observed Game 30 / Shown 119, adjacent generation lines 120 presents/s, 90 generated
+from 30 attempts, no stale outputs or late skips, and clean exit. A second 2x smoke observed Game 30 / Shown 60 and 60 presents/s, with zero late outputs.
+All 333 tests / 6572 assertions pass. Display readability,
+About accuracy by eye and an evening of normal G/U play remain user checks.

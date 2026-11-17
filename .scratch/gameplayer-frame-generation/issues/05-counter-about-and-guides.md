@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Frame Generation 2x), 03 (Frame Generation 4x), 04 (Sharp Upscale).
 
-**Status:** ready-for-agent
+**Status:** implemented; user checks pending
 
 ## Context
 
@@ -39,15 +39,15 @@ Any change to how frames are generated or shown; a counter of what the monitor r
 
 ## Acceptance criteria
 
-- [ ] With Frame Generation running, the counter shows "Game N" and "Shown M" on two lines; with a 30 fps Game Rate at 4x that is 30 and 120.
-- [ ] With Frame Generation off, starting, failed or unavailable, the counter shows the single line it shows today.
-- [ ] "Shown" counts every present, with no cap.
-- [ ] The counter is still blank for two seconds after a start or Feed restart, hidden behind state messages, and never causes a present.
-- [ ] Both lines are readable at the smallest window and in fullscreen.
-- [ ] Help > About shows the Frame Generation and Sharp Upscale state as described.
-- [ ] The setup guide explains the in-app way first, keeps the Lossless Scaling steps, says "one or the other", and keeps the user's vertical style.
-- [ ] `docs/DEVELOPING.md` and the sprint README are up to date; the README table marks what is done.
-- [ ] Unit tests cover: the counter text for off, 2x, 4x, starting and failed; warm-up; the About lines; the layout at the smallest window.
+- [x] With Frame Generation running, the counter shows "Game N" and "Shown M" on two lines; with a 30 fps Game Rate at 4x that is 30 and 120.
+- [x] With Frame Generation off, starting, failed or unavailable, the counter shows the single line it shows today.
+- [x] "Shown" counts every present, with no cap.
+- [x] The counter is still blank for two seconds after a start or Feed restart, hidden behind state messages, and never causes a present.
+- [ ] Both lines are readable at the smallest window and in fullscreen. (Pure layout bounds pass; user visual check pending.)
+- [x] Help > About shows the Frame Generation and Sharp Upscale state as described.
+- [x] The setup guide explains the in-app way first, keeps the Lossless Scaling steps, says "one or the other", and keeps the user's vertical style.
+- [x] `docs/DEVELOPING.md` and the sprint README are up to date; the README table marks what is done.
+- [x] Unit tests cover: the counter text for off, 2x, 4x, starting and failed; warm-up; the About lines; the layout at the smallest window.
 
 ## How to verify
 
@@ -61,3 +61,18 @@ For the user. End your work by reporting this checklist:
 4. Open Help > About. Does it say what is running?
 5. Read the new top part of the setup guide. Is anything unclear?
 6. One evening of normal play with G and U on. Anything that bothers you?
+
+## Implementation evidence
+
+Implemented on `codex/counter-about-guides`, based on `gameplayer-v1` at `6ee98a9`.
+The measured Shown rate counts successful DXGI presents over two seconds, independently
+of the real-frame Processor rate and monitor refresh. AMF readiness controls the second
+line. The Presenter publishes actual FSR 1 state and dimensions to About. Two counter
+lines use the existing multiline headline layout and the same font on both lines.
+
+MSVC RelWithDebInfo build succeeds. All 333 tests / 6572 assertions pass. Pure tests cover counter factors/off/start/failure,
+warm-up, present history, About states, and 480x270/fullscreen layout bounds. The private
+settings hardware smoke at 4x and forced 30 fps exited cleanly after 20 seconds and logged
+Game 30 / Shown 119, with adjacent 120-present generation intervals and no late outputs.
+A second 10-second 2x smoke measured Game 30 / Shown 60, with 60 presents and 30 Generated Frames per second and zero late outputs. Both runs exited cleanly. Evidence is kept in `build/evidence/smoke-final-4x.log` and `smoke-final-2x.log` in the ticket worktree. The original running app/settings were not changed. The manual checklist above remains
+for the user, including actual visual readability and an evening of play.

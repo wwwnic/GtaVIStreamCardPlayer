@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/capture_choice.h"
+#include "core/presentation_info.h"
 #include "core/unique_frames.h"
 #include "core/viewer_settings.h"
 
@@ -60,6 +61,10 @@ std::wstring HotkeysText();
 
 // Help > About: name, version and what is in use now.
 struct AboutInfo {
+    PresentationInfo presentation;
+    GenerationAvailability generationAvailability = GenerationAvailability::Available;
+    bool generationChosen = false;
+    bool sharpUpscaleChosen = false;
     std::wstring device;              // the one opened last; empty: none
     std::optional<CaptureMode> mode;  // empty: none (with a device: it is not playing)
     FrameRates rates;
