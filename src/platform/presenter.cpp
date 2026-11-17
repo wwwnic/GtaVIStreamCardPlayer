@@ -14,9 +14,11 @@
 #include <thread>
 
 #include "core/colour.h"
+#include "core/frame_schedule.h"
 #include "core/latest_slot.h"
 #include "core/picture_fit.h"
 #include "core/shown_texts.h"
+#include "platform/frame_generator.h"
 #include "platform/log.h"
 #include "platform/text_overlay.h"
 
@@ -90,16 +92,26 @@ struct ConversionConstants {
     uint32_t unused[2];
 };
 
-double QpcToMs(int64_t ticks) {
-    static const double msPerTick = [] {
-        LARGE_INTEGER frequency;
-        QueryPerformanceFrequency(&frequency);
-        return 1000.0 / static_cast<double>(frequency.QuadPart);
+int64_t QpcFrequency() {
+    static const int64_t frequency = [] {
+        LARGE_INTEGER ticks;
+        QueryPerformanceFrequency(&ticks);
+        return ticks.QuadPart;
     }();
-    return static_cast<double>(ticks) * msPerTick;
+    return frequency;
 }
 
+double QpcToMs(int64_t ticks) { return static_cast<double>(ticks) * 1000.0 / static_cast<double>(QpcFrequency()); }
+
 const ULONGLONG kRebuildEveryMs = 1000;  // device rebuild attempts are at least this far apart
+
+// A timed frame is drawn this long before it is due at most (what the
+// previous drawing took), so that its present lands on the due time.
+const int kLongestDrawLeadMs = 2;
+
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION  // Windows SDK before 10.0.17134
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
 
 int64_t QpcNow() {
     LARGE_INTEGER now;
@@ -121,6 +133,12 @@ public:
             Log("Presenter: no wake event (error %lu)", GetLastError());
             return false;
         }
+        // For the due times of a timed sequence. High resolution (Windows 10
+        // 1803 on); an ordinary timer otherwise, exact to a millisecond or so.
+        timer_ = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        const bool highResolution = timer_ != nullptr;
+        if (!timer_) timer_ = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+        Log("Presenter: timer for timed frames: %s", highResolution ? "high resolution" : timer_ ? "ordinary" : "none");
         stop_ = false;
         // No device now (a graphics driver being replaced at launch): the
         // thread keeps trying, exactly as after a device loss.
@@ -162,11 +180,13 @@ public:
         ReleaseDevice();
         if (wake_) CloseHandle(wake_);
         wake_ = nullptr;
+        if (timer_) CloseHandle(timer_);
+        timer_ = nullptr;
     }
 
-    void Submit(TimedFrame frame) {
+    void Submit(TimedFrame frame, uint32_t feedGeneration) {
         if (!wake_ || !frame.frame) return;
-        if (slot_.Put(std::move(frame))) {
+        if (slot_.Put({std::move(frame.frame), feedGeneration})) {
             std::lock_guard lock(statsMutex_);
             stats_.replaced++;
         }
@@ -210,6 +230,27 @@ public:
 
     // No repaint: an extra present would count as a game frame for Lossless Scaling.
     void SetVsync(bool on) { vsync_ = on; }
+
+    void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
+        {
+            std::lock_guard lock(generatorMutex_);
+            wantedGenerator_ = std::move(generator);
+        }
+        generatorChanged_ = true;
+        if (wake_) SetEvent(wake_);
+    }
+
+    TimedStats TakeTimedStats() {
+        std::lock_guard lock(statsMutex_);
+        TimedStats taken;
+        taken.frames = timedStats_;
+        if (taken.frames.timed) taken.latenessAverageMs = QpcToMs(taken.frames.latenessSumTicks) / taken.frames.timed;
+        taken.latenessWorstMs = QpcToMs(taken.frames.latenessWorstTicks);
+        taken.presentCallWorstMs = QpcToMs(presentCallWorstTicks_);
+        timedStats_ = {};
+        presentCallWorstTicks_ = 0;
+        return taken;
+    }
 
 private:
     void Repaint() {
@@ -342,6 +383,10 @@ private:
     }
 
     void ReleaseDevice() {
+        // What the generator made is on this device, and the Unique Frame
+        // before a rebuild is not one to generate from.
+        if (generator_) generator_->ReleaseDevice();
+        schedule_.Forget();
         overlay_.Detach();
         if (latencyWaitable_) CloseHandle(latencyWaitable_);
         latencyWaitable_ = nullptr;
@@ -372,7 +417,7 @@ private:
     void Run() {
         Log("Presenter: thread started");
         while (true) {
-            WaitForSingleObject(wake_, deviceLost_ ? RebuildWaitMs() : NextTextEndMs());
+            Wait();
             if (stop_) break;
             if (deviceLost_) {
                 // Graphics driver reset or GPU removed (it can happen around
@@ -390,30 +435,65 @@ private:
                 if (lastFrame_) ConvertToPicture(*lastFrame_);
             }
 
+            AdoptGenerator();
+
             // Both, always: a repaint must not draw a text whose time is up.
             const bool repaint = repaint_.exchange(false);
             const bool ended = EndExpiredTexts();
-            bool draw = repaint || ended;
-            if (resized_.exchange(false)) {
-                if (!ResizeBackBuffer()) {
-                    // No back buffer to draw into, and Present, which reports a
-                    // lost device, would never run: rebuild as after a loss.
-                    deviceLost_ = true;
-                    continue;
+            if (repaint || ended) drawWaiting_ = true;
+            if (resized_.exchange(false)) resizeWaiting_ = true;
+            // Without a frame generator the schedule never holds anything:
+            // these are drawn and presented on this very pass. With one, they
+            // wait for the next frame of the schedule, which is never far,
+            // so no wake-up of this thread adds a present between two frames.
+            bool draw = false;
+            if (!schedule_.HoldsRedraw(ScheduleNow())) {
+                draw = drawWaiting_;
+                drawWaiting_ = false;
+                if (resizeWaiting_) {
+                    if (!ApplyResize()) continue;
+                    draw = true;  // also repaints when no new frame is coming
                 }
-                draw = true;  // also repaints when no new frame is coming
             }
-            std::optional<TimedFrame> next = slot_.Take();
+            auto next = slot_.Take();
             const bool converted = next && ConvertToPicture(*next->frame);
             if (converted) {
-                draw = true;
                 lastFrame_ = next->frame;
+                if (generator_) BeginSequence(*next->frame, next->feedGeneration);
+                if (!generator_) draw = true;
+            }
+            // The frame of the timed sequence that is due, if any. Other
+            // wake-ups find none due and change nothing: the wait starts
+            // again for the same due time, read from the clock.
+            const std::optional<int> due = generator_ ? schedule_.DueFrame(ScheduleNow()) : std::nullopt;
+            ID3D11ShaderResourceView* picture = pictureView_.Get();
+            bool uniqueFrame = converted;  // this present shows a Unique Frame for the first time
+            if (due) {
+                if (resizeWaiting_ && !ApplyResize()) continue;
+                draw = true;
+                drawWaiting_ = false;
+                uniqueFrame = *due == schedule_.Generated();
+                if (!uniqueFrame) {
+                    ID3D11ShaderResourceView* generated = generator_->Generated(*due);
+                    if (generated) picture = generated;
+                }
+            } else if (generator_) {
+                uniqueFrame = false;
             }
             if (!draw || !backBufferView_) continue;
 
+            const int64_t drawBegan = QpcNow();
+            const bool presented = ShowAndPresent(picture);
+            if (due) {
+                schedule_.Presented(presentBegan_, presented);
+                drawLead_ = std::min(presentBegan_ - drawBegan, QpcFrequency() * kLongestDrawLeadMs / 1000);
+                std::lock_guard lock(statsMutex_);
+                timedStats_.Add(schedule_.TakeStats());
+                presentCallWorstTicks_ = std::max(presentCallWorstTicks_, presentTook_);
+            }
             // Counted as shown only if it was converted and the present went through.
-            if (ShowAndPresent() && converted) {
-                const double latencyMs = QpcToMs(QpcNow() - next->frame->arrivalQpc);
+            if (presented && uniqueFrame && lastFrame_) {
+                const double latencyMs = QpcToMs(QpcNow() - lastFrame_->arrivalQpc);
                 std::lock_guard lock(statsMutex_);
                 stats_.presented++;
                 latencySumMs_ += latencyMs;
@@ -421,6 +501,96 @@ private:
             }
         }
         Log("Presenter: thread stopped");
+    }
+
+    // Sleeps until there may be something to do: a wake-up (a frame, a
+    // resize, a text, stop), the end of a brief text, or the due time of the
+    // next frame of a timed sequence. That due time is exact (the timer) and
+    // set again from the clock before every sleep, so being woken for
+    // anything else neither ends the wait for it nor moves it.
+    void Wait() {
+        if (deviceLost_) {
+            WaitForSingleObject(wake_, RebuildWaitMs());
+            return;
+        }
+        const DWORD textMs = NextTextEndMs();
+        std::optional<int64_t> ticks;
+        if (generator_) ticks = schedule_.TicksUntilWake(ScheduleNow(), drawWaiting_ || resizeWaiting_);
+        if (!ticks) {
+            WaitForSingleObject(wake_, textMs);
+            return;
+        }
+        if (*ticks <= 0) return;
+        LARGE_INTEGER due;
+        due.QuadPart = -std::max<LONGLONG>(*ticks * 10'000'000 / QpcFrequency(), 1);  // relative, 100 ns units
+        if (!timer_ || !SetWaitableTimer(timer_, &due, 0, nullptr, nullptr, FALSE)) {
+            WaitForSingleObject(wake_, std::min(textMs, static_cast<DWORD>(QpcToMs(*ticks))));
+            return;
+        }
+        const HANDLE handles[2] = {wake_, timer_};
+        WaitForMultipleObjects(2, handles, FALSE, textMs);
+    }
+
+    // The clock as the schedule is asked: a frame is drawn a little before it
+    // is due, by what the previous drawing took.
+    int64_t ScheduleNow() const { return QpcNow() + drawLead_; }
+
+    // The generator asked for by SetFrameGenerator, taken up here.
+    void AdoptGenerator() {
+        if (!generatorChanged_.exchange(false)) return;
+        std::shared_ptr<FrameGenerator> wanted;
+        {
+            std::lock_guard lock(generatorMutex_);
+            wanted = wantedGenerator_;
+        }
+        if (wanted == generator_) return;
+        DropGenerator();
+        generator_ = std::move(wanted);
+        Log("Presenter: frame generator %s", generator_ ? "set: each Unique Frame is a timed sequence, V-sync ignored"
+                                                        : "removed: each Unique Frame is shown at once, alone");
+    }
+
+    void DropGenerator() {
+        if (!generator_) return;
+        // Its Generated Frames were on screen but the Unique Frame was not yet: show it.
+        if (schedule_.InProgress()) drawWaiting_ = true;
+        generator_->ReleaseDevice();
+        generator_.reset();
+        schedule_.Forget();
+        drawLead_ = 0;
+    }
+
+    // A Unique Frame is in picture_: ask the schedule whether to generate,
+    // the generator for the Generated Frames, and start the sequence.
+    void BeginSequence(const Frame& frame, uint32_t feedGeneration) {
+        const FrameSchedule::Arrival arrival =
+            schedule_.UniqueFrameArrived(frame.arrivalQpc, frame.sequence, frame.width, frame.height, feedGeneration);
+        FrameGenerator::Input input;
+        input.device = device_.Get();
+        input.context = context_.Get();
+        input.picture = picture_.Get();
+        input.pictureView = pictureView_.Get();
+        input.width = frame.width;
+        input.height = frame.height;
+        input.sequence = frame.sequence;
+        input.forgetEarlier = arrival.forgetEarlier;
+        input.mayGenerate = arrival.mayGenerate;
+        const int generated = generator_->Generate(input);
+        if (generated == FrameGenerator::kCannotBeUsed) {
+            Log("Presenter: the frame generator cannot be used; each Unique Frame is shown at once, alone");
+            DropGenerator();
+            return;
+        }
+        schedule_.Begin(generated);
+    }
+
+    // False: no back buffer to draw into, and Present, which reports a lost
+    // device, would never run: rebuild as after a loss.
+    bool ApplyResize() {
+        resizeWaiting_ = false;
+        if (ResizeBackBuffer()) return true;
+        deviceLost_ = true;
+        return false;
     }
 
     // Milliseconds until the device may be built again; 0 when it may now.
@@ -560,7 +730,9 @@ private:
 
     // Pass 2: black Video Area, the picture fitted inside it in the capture
     // mode's shape (16:9 for every 16:9 mode), present now. False: not presented.
-    bool ShowAndPresent() {
+    // `shown`: the picture, or a Generated Frame of the same size. The texts
+    // are drawn over whichever it is, never into it.
+    bool ShowAndPresent(ID3D11ShaderResourceView* shown) {
         // Signalled when the swap chain can take a frame; keeps at most one in flight.
         if (latencyWaitable_) WaitForSingleObjectEx(latencyWaitable_, 100, FALSE);
 
@@ -573,7 +745,7 @@ private:
                                                static_cast<int>(pictureWidth_), static_cast<int>(pictureHeight_));
             const D3D11_VIEWPORT viewport = {static_cast<float>(fit.x), static_cast<float>(fit.y),
                                              static_cast<float>(fit.width), static_cast<float>(fit.height), 0, 1};
-            ID3D11ShaderResourceView* picture = pictureView_.Get();
+            ID3D11ShaderResourceView* picture = shown;
             ID3D11SamplerState* sampler = sampler_.Get();
             context_->RSSetViewports(1, &viewport);
             context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -594,9 +766,13 @@ private:
         overlay_.Draw(swapChain_.Get(), texts, backWidth_, backHeight_);
         // V-sync off (default): interval 0 = do not wait for the monitor; with
         // tearing allowed the frame goes out immediately and the FreeSync
-        // display follows. On: wait for the refresh, no tearing flag.
-        const bool vsync = vsync_.load();
+        // display follows. On: wait for the refresh, no tearing flag. Ignored
+        // with a frame generator: waiting for the monitor would break the
+        // timing of its frames (ADR 0003).
+        const bool vsync = vsync_.load() && !generator_;
+        presentBegan_ = QpcNow();
         const HRESULT hr = swapChain_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
+        presentTook_ = QpcNow() - presentBegan_;
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
             Log("Presenter: device lost hr=0x%08lX (reason 0x%08lX); recreating", static_cast<unsigned long>(hr),
                 static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
@@ -616,7 +792,11 @@ private:
     std::atomic<bool> repaint_{false};
     std::atomic<bool> pictureVisible_{true};
     std::atomic<bool> vsync_{false};
-    LatestSlot<TimedFrame> slot_;
+    struct SubmittedFrame {
+        FramePtr frame;
+        uint32_t feedGeneration;
+    };
+    LatestSlot<SubmittedFrame> slot_;
 
     std::mutex textMutex_;
     ShownTexts texts_;  // times from GetTickCount64
@@ -625,6 +805,13 @@ private:
     std::mutex statsMutex_;
     Stats stats_;
     double latencySumMs_ = 0.0;
+    TimedFrameStats timedStats_;
+    int64_t presentCallWorstTicks_ = 0;
+
+    std::mutex generatorMutex_;
+    std::shared_ptr<FrameGenerator> wantedGenerator_;  // what SetFrameGenerator asked for
+    std::atomic<bool> generatorChanged_{false};
+    HANDLE timer_ = nullptr;  // waitable timer: the due time of the next timed frame
 
     // Everything below is touched only by the presenting thread while it runs.
     ComPtr<ID3D11Device> device_;
@@ -638,6 +825,16 @@ private:
     ULONGLONG rebuildAt_ = 0;   // GetTickCount64: no rebuild attempt before this
     bool warnedPresent_ = false;
     uint32_t backWidth_ = 0, backHeight_ = 0;
+
+    // Timed sequences. Without a generator the schedule is never started and
+    // nothing below changes what is presented.
+    std::shared_ptr<FrameGenerator> generator_;
+    FrameSchedule schedule_{QpcFrequency()};
+    bool drawWaiting_ = false;    // a text appeared or ended: to draw, once the schedule lets it
+    bool resizeWaiting_ = false;  // the same for a new Video Area size
+    int64_t drawLead_ = 0;        // QPC ticks: see ScheduleNow
+    int64_t presentBegan_ = 0;    // QPC: when the latest Present was called
+    int64_t presentTook_ = 0;     // QPC ticks: how long it took to return
 
     ComPtr<ID3D11VertexShader> vertexShader_;
     ComPtr<ID3D11PixelShader> convertShader_, showShader_;
@@ -660,7 +857,7 @@ Presenter::Presenter() : impl_(std::make_unique<Impl>()) {}
 Presenter::~Presenter() = default;
 bool Presenter::Start(HWND window) { return impl_->Start(window); }
 void Presenter::Stop() { impl_->Stop(); }
-void Presenter::Submit(TimedFrame frame) { impl_->Submit(std::move(frame)); }
+void Presenter::Submit(TimedFrame frame, uint32_t feedGeneration) { impl_->Submit(std::move(frame), feedGeneration); }
 void Presenter::VideoAreaResized() { impl_->VideoAreaResized(); }
 void Presenter::ShowText(TextPlace place, VideoAreaText text, int durationMs) {
     impl_->ShowText(place, std::move(text), durationMs);
@@ -670,6 +867,10 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
+void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
+    impl_->SetFrameGenerator(std::move(generator));
+}
 Presenter::Stats Presenter::TakeStats() { return impl_->TakeStats(); }
+Presenter::TimedStats Presenter::TakeTimedStats() { return impl_->TakeTimedStats(); }
 
 }  // namespace gp

@@ -6,10 +6,13 @@
 #include <cstdint>
 #include <memory>
 
+#include "core/frame_schedule.h"
 #include "core/processor.h"
 #include "core/video_area_text.h"
 
 namespace gp {
+
+class FrameGenerator;
 
 // Owns the Direct3D 11 device and the flip-model swap chain, and shows frames
 // in the window's Video Area: converted from YUV to RGB by its own shader,
@@ -19,9 +22,11 @@ namespace gp {
 // single-frame slot and wakes that thread, so capture never waits for the GPU
 // and nothing queues: a newer frame replaces one not shown yet.
 //
-// Ticket 02 limit: every frame is shown as soon as it is taken from the slot;
-// a TimedFrame::showAtQpc in the future is not waited for yet (no Processor
-// asks for that until in-app Frame Generation exists).
+// Every frame is shown as soon as it is taken from the slot (a
+// TimedFrame::showAtQpc in the future is not waited for). With a frame
+// generator set (ADR 0003) each Unique Frame becomes a timed sequence
+// instead: its Generated Frames first, then the frame itself, evenly spaced
+// by core/frame_schedule.h. Without one, nothing of that runs.
 class Presenter {
 public:
     struct Stats {
@@ -29,6 +34,15 @@ public:
         uint32_t replaced = 0;           // frames overtaken by a newer one before being shown
         double averageLatencyMs = 0.0;   // arrival at the Source -> Present returned
         double worstLatencyMs = 0.0;
+    };
+
+    // The timed sequences since the previous TakeTimedStats (all zero without
+    // a frame generator).
+    struct TimedStats {
+        TimedFrameStats frames;
+        double latenessAverageMs = 0.0;   // a present against its due time
+        double latenessWorstMs = 0.0;
+        double presentCallWorstMs = 0.0;  // the longest the swap chain's Present took to return
     };
 
     Presenter();
@@ -52,7 +66,7 @@ public:
     // whatever feeds the Presenter first).
 
     // Hands over a frame to show. Any thread; never blocks on the GPU.
-    void Submit(TimedFrame frame);
+    void Submit(TimedFrame frame, uint32_t feedGeneration);
 
     // Tells the Presenter the window's client size changed. Any thread; returns at once.
     void VideoAreaResized();
@@ -76,11 +90,23 @@ public:
     // V-sync (the View menu). Off, the default: each frame is presented the
     // moment it is ready, tearing allowed, and the FreeSync monitor follows.
     // On: presents wait for the monitor's refresh (sync interval 1), no
-    // tearing. From the next present. Any thread.
+    // tearing. From the next present. Any thread. Ignored while a frame
+    // generator is set: waiting for the monitor would break the timing.
     void SetVsync(bool on);
 
-    // Counters since the previous call.
+    // Sets the generator asked for Generated Frames with each Unique Frame,
+    // from the next one; empty (the default): none, every frame is shown
+    // alone, at once. With one set, a Unique Frame is shown after its
+    // Generated Frames, one step apart, and a text or a resize is drawn into
+    // the next of those frames instead of being presented by itself. The
+    // generator is used on the presenting thread only. Any thread.
+    void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator);
+
+    // Counters since the previous call. With a frame generator, `presented`
+    // counts Unique Frames (not their Generated Frames) and the latency runs
+    // to the present of the Unique Frame itself.
     Stats TakeStats();
+    TimedStats TakeTimedStats();
 
 private:
     class Impl;

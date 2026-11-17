@@ -31,6 +31,7 @@ add_library(gameplayer_core STATIC
     src/core/luma_summary.cpp
     src/core/audio_controls.cpp
     src/core/shown_texts.cpp
+    src/core/frame_schedule.cpp
     src/core/window_shape.cpp
     src/core/menu_model.cpp
     src/core/settings_file.cpp
@@ -46,6 +47,7 @@ add_executable(GamePlayer WIN32
     src/platform/log.cpp
     src/platform/mf_source.cpp
     src/platform/presenter.cpp
+    src/platform/frame_generator.cpp
     src/platform/sound.cpp
     src/platform/feed_keeper.cpp
     src/platform/text_overlay.cpp
@@ -79,6 +81,7 @@ add_executable(gameplayer_tests
     tests/luma_summary_test.cpp
     tests/audio_controls_test.cpp
     tests/shown_texts_test.cpp
+    tests/frame_schedule_test.cpp
     tests/window_shape_test.cpp
     tests/menu_model_test.cpp
     tests/settings_file_test.cpp
