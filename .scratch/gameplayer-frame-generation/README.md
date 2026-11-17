@@ -25,7 +25,7 @@ The user judged the picture good at 2x and 4x.
 
 | # | Ticket | Blocked by | Status |
 |---|--------|------------|--------|
-| 01 | Presenter shows several timed frames per Unique Frame | None | ready-for-agent |
+| 01 | Presenter shows several timed frames per Unique Frame | None | done |
 | 02 | Frame Generation 2x | 01 | ready-for-agent |
 | 03 | Frame Generation 4x | 02 | ready-for-agent |
 | 04 | Sharp Upscale | None | ready-for-agent |
