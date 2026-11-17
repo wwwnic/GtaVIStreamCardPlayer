@@ -29,6 +29,7 @@
 #include "core/settings_file.h"
 #include "core/viewer_settings.h"
 #include "core/window_shape.h"
+#include "platform/amf_generator.h"
 #include "platform/feed_keeper.h"
 #include "platform/feedback.h"
 #include "platform/frame_generator.h"
@@ -47,6 +48,7 @@ const wchar_t kWindowTitle[] = L"GamePlayer";
 const wchar_t kWindowClass[] = L"GamePlayerWindow";
 const int kDefaultVideoAreaWidth = 1280;  // 16:9 (720 high), shrunk if the monitor is smaller
 const int kMinVideoAreaWidthAt96Dpi = 480;  // 270 high
+constexpr UINT kGenerationFailed = WM_APP + 27;
 const UINT_PTR kStatsTimer = 1;
 const UINT_PTR kRunTimer = 2;
 
@@ -56,6 +58,8 @@ struct App {
           feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
     HWND window;
     gp::MenuBar& menu;
+    gp::GenerationAvailability generationAvailability = gp::AmfRuntimeInstalled()
+        ? gp::GenerationAvailability::Available : gp::GenerationAvailability::MissingRuntime;
     gp::ViewerSettings settings;    // every menu override in effect now
     // What is saved: `settings` as the user chose them. Differs only for this
     // run's fallbacks (a resolution that did not start) and --rate.
@@ -119,6 +123,29 @@ void ToggleFpsCounter(App& app, const char* from) {
     app.settings.fpsCounter = app.remembered.fpsCounter = !app.settings.fpsCounter;
     gp::Log("%s: FPS counter %s", from, app.settings.fpsCounter ? "on" : "off");
     app.feed.SetFpsCounter(app.settings.fpsCounter);
+}
+
+void ApplyGeneration(App& app) {
+    if (app.settings.generation == gp::GenerationFactor::Off) {
+        app.presenter.SetFrameGenerator(nullptr);
+    } else {
+        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator([window = app.window] {
+            PostMessageW(window, kGenerationFailed, 0, 0);
+        }));
+    }
+}
+
+void ToggleGeneration(App& app) {
+    if (app.generationAvailability != gp::GenerationAvailability::Available) {
+        app.feedback.Show(app.generationAvailability == gp::GenerationAvailability::MissingRuntime
+                              ? "Frame generation needs an AMD graphics card" : "Frame generation not available");
+        return;
+    }
+    app.settings.generation = app.remembered.generation = gp::NextGeneration(app.settings.generation);
+    ApplyGeneration(app);
+    const char* line = app.settings.generation == gp::GenerationFactor::Off ? "Frame generation off" : "Frame generation 2x";
+    gp::Log("Menu: %s", line);
+    app.feedback.Show(line);
 }
 
 // Every setting at once: at launch, after loading the remembered ones.
@@ -211,7 +238,9 @@ void HandleMenuCommand(App& app, UINT id) {
         gp::Log("Menu: always on top %s, window topmost %s", s.alwaysOnTop ? "on" : "off",
                 (GetWindowLongPtrW(app.window, GWL_EXSTYLE) & WS_EX_TOPMOST) ? "yes" : "no");
         break;
+    case gp::kMenuGeneration: ToggleGeneration(app); break;
     case gp::kMenuVsync:
+        if (s.generation != gp::GenerationFactor::Off) break;
         s.vsync = !s.vsync;
         kept.vsync = s.vsync;
         app.presenter.SetVsync(s.vsync);
@@ -229,6 +258,7 @@ void HandleMenuCommand(App& app, UINT id) {
 
 void MenuOpening(App& app, HMENU popup) {
     gp::MenuBar::State state;
+    state.generationAvailability = app.generationAvailability;
     state.settings = app.settings;
     state.fullscreen = app.fullscreen.IsOn();
     state.deviceInUse = {app.feed.DeviceInUse(), app.feed.DeviceIdInUse()};  // checked while not playing too
@@ -475,7 +505,19 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         return 0;
     }
     switch (message) {
+    case kGenerationFailed:
+        if (app && app->generationAvailability == gp::GenerationAvailability::Available) {
+            app->generationAvailability = gp::GenerationAvailability::Failed;
+            app->settings.generation = gp::GenerationFactor::Off;
+            ApplyGeneration(*app);
+            app->feedback.Show("Frame generation not available");
+        }
+        return 0;
     case WM_KEYDOWN:
+        if (app && wParam == 'G') {
+            if (!(lParam & (1 << 30))) ToggleGeneration(*app);
+            return 0;
+        }
         if (app && HandleAudioKey(*app, wParam, lParam)) return 0;
         if (app && wParam == 'F') {
             if (!(lParam & (1 << 30))) ToggleFpsCounter(*app, "Key");  // held F toggles once
@@ -652,11 +694,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
             app.feedback.Show(std::to_string(failed.width) + "x" + std::to_string(failed.height) +
                               (offered ? " did not start: back to 1080p" : " is not offered by this card: 1080p"));
         });
+        if (app.generationAvailability == gp::GenerationAvailability::MissingRuntime) {
+            app.settings.generation = gp::GenerationFactor::Off;
+            gp::Log("FrameGen: unavailable, AMD driver runtime missing");
+        } else if (app.settings.generation != gp::GenerationFactor::Off) {
+            ApplyGeneration(app);
+        }
         ApplyAllSettings(app);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
         // The developer switch stands in for a frame generator: it exercises
-        // the Presenter's timed sequences before any generator exists.
+        // the Presenter's timed sequences independently of AMF.
         if (gp::GeneratedFramesFor(arguments.framesPerUnique) > 0) {
             gp::Log("Developer switch --frames-per-unique %d: each Unique Frame is shown %d times, evenly spaced",
                     arguments.framesPerUnique, arguments.framesPerUnique);

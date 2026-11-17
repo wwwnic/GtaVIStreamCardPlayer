@@ -423,3 +423,9 @@ TEST_CASE("a new Feed generation forgets the earlier frame even when sequence nu
     CHECK(restarted.forgetEarlier);
     CHECK_FALSE(restarted.mayGenerate);
 }
+
+TEST_CASE("only an output stamped with the current input can be shown") {
+    CHECK(gp::CurrentGeneratedOutput(42, 42));
+    CHECK_FALSE(gp::CurrentGeneratedOutput(42, 41));
+    CHECK_FALSE(gp::CurrentGeneratedOutput(42, 43));
+}

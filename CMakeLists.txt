@@ -47,6 +47,7 @@ add_executable(GamePlayer WIN32
     src/platform/log.cpp
     src/platform/mf_source.cpp
     src/platform/presenter.cpp
+    src/platform/amf_generator.cpp
     src/platform/frame_generator.cpp
     src/platform/sound.cpp
     src/platform/feed_keeper.cpp
@@ -55,6 +56,7 @@ add_executable(GamePlayer WIN32
     src/platform/menu_bar.cpp
     src/platform/settings_store.cpp
 )
+target_include_directories(GamePlayer SYSTEM PRIVATE third_party/amf)
 target_link_libraries(GamePlayer PRIVATE gameplayer_core
     d3d11 dxgi d3dcompiler mfplat mf mfreadwrite mfuuid ole32 user32 gdi32 shell32 avrt d2d1 dwrite uuid)
 

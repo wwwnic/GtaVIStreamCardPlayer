@@ -12,6 +12,10 @@
 
 namespace gp {
 
+constexpr bool CurrentGeneratedOutput(uint64_t submitted, uint64_t returned) {
+    return submitted == returned;
+}
+
 // No Generated Frames for a Unique Frame whose interval is outside these: a
 // shorter one cannot be real, a longer one would hold the picture back too long.
 inline constexpr int kMinIntervalMs = 6;

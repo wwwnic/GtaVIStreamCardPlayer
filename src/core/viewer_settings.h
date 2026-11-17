@@ -12,7 +12,14 @@
 
 namespace gp {
 
+enum class GenerationAvailability { Available, MissingRuntime, Failed };
+enum class GenerationFactor { Off, Double };
+constexpr GenerationFactor NextGeneration(GenerationFactor factor) {
+    return factor == GenerationFactor::Off ? GenerationFactor::Double : GenerationFactor::Off;
+}
+
 struct ViewerSettings {
+    GenerationFactor generation = GenerationFactor::Off;
     std::wstring captureCard;              // friendly name; empty: automatic (the GC553 Pro, else the first)
     std::wstring captureCardId;            // its symbolic link, tried before the name; empty: not known yet
     std::optional<Resolution> resolution;  // empty: the default, 1080p60

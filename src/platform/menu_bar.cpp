@@ -76,6 +76,7 @@ MenuBar::MenuBar() {
     const ViewMenu view = ViewItems(ViewerSettings{}, false);
     Append(view_, kMenuFullscreen, view.fullscreen, false);
     Append(view_, kMenuAlwaysOnTop, view.alwaysOnTop, false);
+    Append(view_, kMenuGeneration, view.generation, false);
     Append(view_, kMenuVsync, view.vsync, false);
     Append(view_, kMenuFpsCounter, view.fpsCounter, false);
 
@@ -117,9 +118,10 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(audio_, kMenuVolumeShown, audio.volume);
     Update(audio_, kMenuDelayShown, audio.audioDelay);
 
-    const ViewMenu view = ViewItems(state.settings, state.fullscreen);
+    const ViewMenu view = ViewItems(state.settings, state.fullscreen, state.generationAvailability);
     Update(view_, kMenuFullscreen, view.fullscreen);
     Update(view_, kMenuAlwaysOnTop, view.alwaysOnTop);
+    Update(view_, kMenuGeneration, view.generation);
     Update(view_, kMenuVsync, view.vsync);
     Update(view_, kMenuFpsCounter, view.fpsCounter);
 }

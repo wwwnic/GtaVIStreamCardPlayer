@@ -36,6 +36,7 @@ enum MenuCommand : UINT {
     kMenuAlwaysOnTop,
     kMenuVsync,
     kMenuFpsCounter,
+    kMenuGeneration,
     kMenuHotkeys = 1500,
     kMenuAbout,
 };
@@ -52,6 +53,7 @@ public:
 
     struct State {
         ViewerSettings settings;
+        GenerationAvailability generationAvailability = GenerationAvailability::Available;
         bool fullscreen = false;
         CaptureCardEntry deviceInUse;    // the one opened last, playing or not
         std::vector<CaptureMode> modes;  // the card's mode list

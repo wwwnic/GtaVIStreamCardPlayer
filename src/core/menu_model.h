@@ -47,10 +47,12 @@ AudioMenu AudioItems(const AudioSettings& audio);
 struct ViewMenu {
     MenuItem fullscreen;
     MenuItem alwaysOnTop;
+    MenuItem generation;
     MenuItem vsync;
     MenuItem fpsCounter;  // in step with the F key
 };
-ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn);
+ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn,
+                   GenerationAvailability availability = GenerationAvailability::Available);
 
 // Help > Hotkeys.
 std::wstring HotkeysText();
