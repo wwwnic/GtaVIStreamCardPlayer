@@ -214,10 +214,12 @@ TEST_CASE("About names a card that is there but not playing (busy, failed)") {
     CHECK_FALSE(Contains(gp::AboutText(info), L"not playing"));
 }
 
-TEST_CASE("G cycles from off to 2x and back") {
+TEST_CASE("G cycles from off to 2x to 4x and back") {
     const auto enabled = gp::NextGeneration(gp::GenerationFactor::Off);
     CHECK(enabled == gp::GenerationFactor::Double);
-    CHECK(gp::NextGeneration(enabled) == gp::GenerationFactor::Off);
+    const auto four = gp::NextGeneration(enabled);
+    CHECK(four == gp::GenerationFactor::Quadruple);
+    CHECK(gp::NextGeneration(four) == gp::GenerationFactor::Off);
 }
 
 TEST_CASE("View shows Frame generation, its key, and whether V-sync is available") {
@@ -225,7 +227,9 @@ TEST_CASE("View shows Frame generation, its key, and whether V-sync is available
     CHECK_FALSE(gp::ViewItems(settings, false).generation.checked);
     settings.generation = gp::GenerationFactor::Double;
     auto view = gp::ViewItems(settings, false);
-    CHECK(view.generation.label == L"Frame generation\tG");
+    CHECK(view.generation.label == L"Frame generation 2x\tG");
+    settings.generation = gp::GenerationFactor::Quadruple;
+    CHECK(gp::ViewItems(settings, false).generation.label == L"Frame generation 4x\tG");
     CHECK(view.generation.checked);
     CHECK_FALSE(view.vsync.enabled);
     CHECK(gp::HotkeysText().find(L"G\tFrame generation") != std::wstring::npos);

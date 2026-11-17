@@ -7,7 +7,7 @@ namespace gp {
 
 class FrameGenerator;
 bool AmfRuntimeInstalled();
-// The callback runs on the presenting thread, only when returning kCannotBeUsed.
-std::shared_ptr<FrameGenerator> MakeAmfGenerator(std::function<void()> onFailure);
+// On the presenting thread: true when 4x fell back to 2x, false when generation failed.
+std::shared_ptr<FrameGenerator> MakeAmfGenerator(bool four, std::function<void(bool)> onFailure);
 
 }  // namespace gp
