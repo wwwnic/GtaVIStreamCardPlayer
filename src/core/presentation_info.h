@@ -1,8 +1,10 @@
 // Actual Presenter state, shared with the counter and Help > About.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <deque>
+#include <optional>
 
 namespace gp {
 
@@ -19,20 +21,34 @@ struct PresentationInfo {
 // Caller supplies monotonic milliseconds and owns thread synchronisation.
 class PresentedFrames {
 public:
+    static constexpr int64_t kWindowMs = 2000;
+    static constexpr int64_t kShortestWindowMs = 250;
+
     void Presented(int64_t now) {
         Prune(now);
         times_.push_back(now);
     }
+    // Presents per second over the last two seconds. Right after Reset the
+    // window is only as long as the time since, so a new present rate (the
+    // factor changed) is not mixed with the old one.
     int RateAt(int64_t now) {
         Prune(now);
-        return static_cast<int>((times_.size() + 1) / 2);
+        int64_t span = kWindowMs;
+        if (since_ && now - *since_ < kWindowMs) span = std::max(now - *since_, kShortestWindowMs);
+        const int64_t count = static_cast<int64_t>(times_.size());
+        return static_cast<int>((count * 1000 + span / 2) / span);
     }
-    void Reset() { times_.clear(); }
+    // Forgets every present so far; the window restarts at now.
+    void Reset(int64_t now) {
+        times_.clear();
+        since_ = now;
+    }
 private:
     void Prune(int64_t now) {
-        while (!times_.empty() && times_.front() <= now - 2000) times_.pop_front();
+        while (!times_.empty() && times_.front() <= now - kWindowMs) times_.pop_front();
     }
     std::deque<int64_t> times_;
+    std::optional<int64_t> since_;
 };
 
 }  // namespace gp
