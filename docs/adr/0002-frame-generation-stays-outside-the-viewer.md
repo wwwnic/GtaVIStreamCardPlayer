@@ -1,5 +1,7 @@
 # Frame Generation stays outside the Viewer for now
 
+Status: superseded by ADR 0003 (Frame Generation inside the Viewer). Its consequences still apply whenever in-app Frame Generation is off.
+
 Frame Generation on a video Feed has no game motion vectors or depth, so DLSS and FSR frame generation cannot be used, and matching the quality of the existing Lossless Scaling app in-house would be a large effort with uncertain results. The Viewer therefore does no Frame Generation itself: Lossless Scaling runs on top of the Viewer's window, configured once by the user, and the Viewer never controls it.
 
 ## Consequences

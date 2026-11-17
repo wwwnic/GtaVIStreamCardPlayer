@@ -28,7 +28,16 @@ A frame whose picture differs from the one before it.
 A frame that is a copy of the previous one, sent because the Game Rate is lower than the Signal Rate.
 
 **Frame Generation**
-Creating extra in-between frames so motion looks smoother than the Game Rate. Done outside the Viewer for now; may move inside it later.
+Creating extra in-between frames so motion looks smoother than the Game Rate. The Viewer can do it itself; it can also be left to a separate app running on top of the Viewer.
+
+**Generated Frame**
+An in-between frame made by Frame Generation. It was never sent by the Console.
+
+**Generation Factor**
+How many frames are shown for each Unique Frame while Frame Generation is on: 2x or 4x.
+
+**Sharp Upscale**
+Showing the Feed's picture larger than it arrived while keeping edges crisp, instead of a plain smooth stretch.
 
 **Passthrough**
 The Capture Card's HDMI output that forwards the Console's picture straight to a TV or monitor, bypassing the PC.
