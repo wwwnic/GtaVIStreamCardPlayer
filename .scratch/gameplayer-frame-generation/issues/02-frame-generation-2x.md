@@ -4,7 +4,11 @@
 
 **Blocked by:** 01 (Presenter shows several timed frames per Unique Frame).
 
-**Status:** ready-for-agent
+**Status:** done
+
+## Validation recorded at integration
+
+The unit suite passed all 320 tests. With 2x enabled, the 1080p60 smoke run reached a steady 120 presents per second. The user reported a successful manual test of the build integrated at `7f52c96`. Individual checklist results were not recorded.
 
 ## Context
 
