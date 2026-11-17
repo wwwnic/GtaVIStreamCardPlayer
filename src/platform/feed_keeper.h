@@ -84,6 +84,7 @@ private:
     void ShowState();
     void LogSignalProbe();
     void LogFrames();
+    void LogTimedFrames();
     void UpdateFpsCounter();
     int64_t Now() const;
 

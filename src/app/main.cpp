@@ -5,6 +5,8 @@
 // --tolerance X   near-duplicate tolerance for Repeated Frames (default 0, exact).
 // --rate auto|30|60   the Game Rate override for this run (not remembered).
 // --settings PATH   use this settings file instead of %APPDATA%\GamePlayer\settings.ini.
+// --frames-per-unique 2|4   developer switch: each Unique Frame is shown that many
+// times, evenly spaced, picture unchanged (not in the menu, not remembered).
 // Keys: F11 toggles borderless fullscreen, Esc leaves it. Up / Down volume,
 // M mute, J / K Audio Delay (sound earlier / later). F the FPS counter.
 // The menu bar (windowed only) overrides the automatic choices; all its
@@ -29,6 +31,7 @@
 #include "core/window_shape.h"
 #include "platform/feed_keeper.h"
 #include "platform/feedback.h"
+#include "platform/frame_generator.h"
 #include "platform/fullscreen.h"
 #include "platform/keep_awake.h"
 #include "platform/log.h"
@@ -547,9 +550,11 @@ struct Arguments {
     double tolerance = gp::kNearDuplicateTolerance;
     std::optional<gp::GameRateOverride> rate;  // empty: the remembered one
     std::wstring settingsPath;                  // empty: the default place
+    int framesPerUnique = 1;                    // the developer switch: 2 or 4
 };
 
-// --run N, --tolerance X (e.g. 0.005), --rate auto|30|60, --settings PATH.
+// --run N, --tolerance X (e.g. 0.005), --rate auto|30|60, --settings PATH,
+// --frames-per-unique 2|4.
 Arguments ArgumentsFromCommandLine() {
     Arguments parsed;
     int count = 0;
@@ -561,6 +566,7 @@ Arguments ArgumentsFromCommandLine() {
         gp::GameRateOverride rate;
         if (wcscmp(arguments[i], L"--rate") == 0 && gp::ParseGameRateOverride(arguments[i + 1], rate)) parsed.rate = rate;
         if (wcscmp(arguments[i], L"--settings") == 0) parsed.settingsPath = arguments[i + 1];
+        if (wcscmp(arguments[i], L"--frames-per-unique") == 0) parsed.framesPerUnique = _wtoi(arguments[i + 1]);
     }
     LocalFree(arguments);
     return parsed;
@@ -649,6 +655,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         ApplyAllSettings(app);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&app));
 
+        // The developer switch stands in for a frame generator: it exercises
+        // the Presenter's timed sequences before any generator exists.
+        if (gp::GeneratedFramesFor(arguments.framesPerUnique) > 0) {
+            gp::Log("Developer switch --frames-per-unique %d: each Unique Frame is shown %d times, evenly spaced",
+                    arguments.framesPerUnique, arguments.framesPerUnique);
+            app.presenter.SetFrameGenerator(gp::MakeRepeatingGenerator(arguments.framesPerUnique));
+        } else if (arguments.framesPerUnique != 1) {
+            gp::Log("Developer switch --frames-per-unique %d ignored: 2 or 4 only", arguments.framesPerUnique);
+        }
         // Without a graphics device yet, the Presenter keeps trying by itself.
         if (!app.presenter.Start(window)) gp::Log("No Presenter: the window stays black");
         app.feed.Start();  // shows Loading, then the Feed or why not; recovers by itself

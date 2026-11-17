@@ -154,6 +154,7 @@ void FeedKeeper::Tick() {
     if (++ticks_ % (1000 / kTickMs) == 0) {
         LogSignalProbe();
         LogFrames();
+        LogTimedFrames();
         UpdateFpsCounter();
     }
 }
@@ -259,6 +260,17 @@ void FeedKeeper::LogFrames() {
     loggedTotals_ = now;
 }
 
+// Once a second, only while the Presenter shows more than one frame per
+// Unique Frame: whether the timing holds (core/frame_schedule.h).
+void FeedKeeper::LogTimedFrames() {
+    const Presenter::TimedStats timed = presenter_.TakeTimedStats();
+    if (timed.frames.withGenerated == 0) return;
+    Log("Timed frames: Unique Frames %u (%u shown as several frames), presented %u, dropped early %u, skipped late %u; "
+        "lateness ms avg %.3f worst %.3f; Present call worst %.3f ms",
+        timed.frames.uniqueFrames, timed.frames.withGenerated, timed.frames.presented, timed.frames.droppedEarly,
+        timed.frames.skippedLate, timed.latenessAverageMs, timed.latenessWorstMs, timed.presentCallWorstMs);
+}
+
 void FeedKeeper::Apply(RecoveryActions actions) {
     if (actions.restartFeed) RestartFeed();
     if (actions.startSound) {
@@ -292,7 +304,7 @@ void FeedKeeper::RestartFeed() {
             const int64_t began = QpcNow();
             processor_->Process(std::move(captured), toShow_);
             const int64_t spent = QpcNow() - began;
-            for (TimedFrame& frame : toShow_) presenter_.Submit(std::move(frame));
+            for (TimedFrame& frame : toShow_) presenter_.Submit(std::move(frame), generation);
             const int64_t submitted = QpcNow();
             processor_->AfterSubmit();
             RaiseTo(timing_.afterWorst, QpcNow() - submitted);
