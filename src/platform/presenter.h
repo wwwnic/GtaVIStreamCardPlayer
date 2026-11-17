@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "core/frame_schedule.h"
+#include "core/presentation_info.h"
 #include "core/processor.h"
 #include "core/video_area_text.h"
 
@@ -109,6 +110,7 @@ public:
     // counts Unique Frames (not their Generated Frames) and the latency runs
     // to the present of the Unique Frame itself.
     Stats TakeStats();
+    PresentationInfo Presentation();
     TimedStats TakeTimedStats();
 
 private:

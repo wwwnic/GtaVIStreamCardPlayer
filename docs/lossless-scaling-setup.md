@@ -1,6 +1,66 @@
 # Lossless Scaling setup
 
-Do this once.
+## Start with the Viewer alone
+
+GamePlayer can add smoothness itself.
+
+No second app is needed.
+
+G: off, 2x, then 4x.
+
+U: Sharp Upscale on or off.
+
+For a smaller Feed shown larger.
+
+The Viewer remembers both choices.
+
+F shows the counter.
+
+With generation running:
+
+Game 30
+
+Shown 60, or Shown 120.
+
+Game: real frames per second.
+
+Shown: all frames the Viewer sends.
+
+Your monitor may show fewer.
+
+No monitor limit is applied.
+
+Blank for two seconds after starting.
+
+Help > About says what is running.
+
+It also says why generation is unavailable.
+
+The in-app way needs AMD graphics.
+
+## Or use Lossless Scaling
+
+Use one or the other, never both.
+
+Lossless Scaling treats every Viewer frame
+
+as a game frame.
+
+It would take Generated Frames for real ones.
+
+Before using Lossless Scaling:
+
+press G until generation is off.
+
+Check Help > About.
+
+Before using the Viewer's generation:
+
+stop Lossless Scaling's generation.
+
+The steps below are for Lossless Scaling.
+
+Do this setup once.
 
 Then just start GamePlayer.
 
@@ -286,7 +346,9 @@ Second number: output.
 
 GamePlayer's own counter: press F.
 
-It shows one number.
+With in-app generation off:
+
+it shows one number.
 
 For example: 30 FPS.
 
@@ -389,6 +451,8 @@ Open AMD Software.
 AMD Fluid Motion Frames (AFMF):
 
 keep it off for GamePlayer.
+
+That applies to in-app generation too.
 
 Two frame generators would clash.
 

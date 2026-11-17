@@ -245,7 +245,8 @@ public:
         if (generated_ == 3 && index == 2) return session_->lastQuarter.view.Get();
         return session_->middle.view.Get();
     }
-    void ReleaseDevice() override { session_.reset(); }
+    int RunningFactor() const override { return announced_ ? (four_ ? 4 : 2) : 0; }
+    void ReleaseDevice() override { session_.reset(); announced_ = false; }
 
     void NotePresented() override {
         ++presented_;

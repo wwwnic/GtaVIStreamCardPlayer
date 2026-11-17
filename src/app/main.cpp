@@ -183,6 +183,10 @@ void ShowAbout(App& app) {
     info.mode = app.feed.CurrentMode();
     info.rates = app.feed.Rates();
     info.frameRate = app.settings.frameRate;
+    info.presentation = app.presenter.Presentation();
+    info.generationAvailability = app.generationAvailability;
+    info.generationChosen = app.settings.generation != gp::GenerationFactor::Off;
+    info.sharpUpscaleChosen = app.settings.sharpUpscale;
     const std::wstring text = gp::AboutText(info);
     gp::Log("Menu: About (signal rate %d, game rate %d, presented rate %d)", info.rates.signalRate,
             info.rates.gameRate, info.rates.presentedRate);

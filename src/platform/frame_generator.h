@@ -41,6 +41,7 @@ public:
     static constexpr int kCannotBeUsed = -1;
 
     virtual ~FrameGenerator() = default;
+    virtual int RunningFactor() const { return 0; } // off until initialisation succeeds
     virtual void NotePresented() {}  // successful present while this generator is in use
 
     // Takes Unique Frame N and answers how many Generated Frames between N-1

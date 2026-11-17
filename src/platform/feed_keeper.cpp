@@ -227,8 +227,9 @@ void FeedKeeper::SetFpsCounter(bool on) {
 // number from a Feed that is not there.
 void FeedKeeper::UpdateFpsCounter() {
     const bool show = fpsCounter_ && machine_.State() == VideoAreaState::Playing;
+    const auto info = presenter_.Presentation();
     presenter_.ShowTextWithNextFrame(TextPlace::TopLeft,
-                                     show ? VideoAreaText{FpsCounterText(Rates()), L""} : VideoAreaText{});
+                                     show ? VideoAreaText{FpsCounterText(Rates(), info.shownRate, info.runningFactor), L""} : VideoAreaText{});
 }
 
 // Once a second: enough to tell from the log alone whether a game's Repeated
@@ -239,6 +240,11 @@ void FeedKeeper::LogFrames() {
     const UniqueFrameTotals& was = loggedTotals_;
     const UniqueCloseness close = processor_->TakeCloseness();
     const FrameRates rates = Rates();
+    const auto presentation = presenter_.Presentation();
+    std::string counter = ToUtf8(FpsCounterText(rates, presentation.shownRate, presentation.runningFactor));
+    // Keep the two-line screen text on one timestamped log line.
+    for (size_t at = 0; (at = counter.find('\n', at)) != std::string::npos; at += 2)
+        counter.replace(at, 1, "\\n");
     const uint32_t uniqueCount = timing_.uniqueCount.exchange(0), repeatCount = timing_.repeatCount.exchange(0);
     const int64_t uniqueTicks = timing_.uniqueTicks.exchange(0), repeatTicks = timing_.repeatTicks.exchange(0);
     const int64_t uniqueWorst = timing_.uniqueWorst.exchange(0), repeatWorst = timing_.repeatWorst.exchange(0);
@@ -256,7 +262,7 @@ void FeedKeeper::LogFrames() {
         rates.signalRate, NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
         close.closeUnique ? close.closeShareMin : 0.0, uniqueCount ? QpcToMs(uniqueTicks) / uniqueCount : 0.0,
         QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst), QpcToMs(afterWorst),
-        !fpsCounter_ ? "off" : !rates.warm ? "warming up" : ("\"" + ToUtf8(FpsCounterText(rates)) + "\"").c_str());
+        !fpsCounter_ ? "off" : !rates.warm ? "warming up" : ("\"" + counter + "\"").c_str());
     loggedTotals_ = now;
 }
 
