@@ -122,21 +122,25 @@ std::wstring AboutText(const AboutInfo& info) {
     text += L"\nGame Rate: " + std::to_wstring(info.rates.gameRate) + L" fps (Unique Frames)";
     if (info.frameRate != GameRateOverride::Auto) {
         const std::wstring setting(NameOf(info.frameRate), NameOf(info.frameRate) + std::strlen(NameOf(info.frameRate)));
-        text += std::wstring(info.presentation.runningFactor > 1 ? L"\nGame: " : L"\nShown: ") +
-                std::to_wstring(info.rates.presentedRate) + L" fps (Frame rate set to " + setting + L")";
+        const bool generating = info.presentation.runningFactor > 1;
+        const int realRate = generating ? info.presentation.realRate : info.rates.presentedRate;
+        text += std::wstring(generating ? L"\nGame: " : L"\nShown: ") + std::to_wstring(realRate) +
+                L" fps (Frame rate set to " + setting + L")";
     }
     if (info.presentation.runningFactor > 1)
         text += L"\nShown: " + std::to_wstring(info.presentation.shownRate) + L" fps (all frames presented)";
     text += L"\nFrame Generation: ";
     if (info.presentation.runningFactor > 1) {
         text += std::to_wstring(info.presentation.runningFactor) + L"x";
+        if (!info.generationReason.empty()) text += L" (4x unavailable: " + info.generationReason + L")";
     } else {
         text += L"off";
         if (info.generationAvailability == GenerationAvailability::MissingRuntime)
             text += L" (needs an AMD graphics card and driver)";
         else if (info.generationAvailability == GenerationAvailability::Failed)
-            text += L" (not available this session)";
+            text += info.generationReason.empty() ? L" (not available this session)" : L" (" + info.generationReason + L")";
         else if (info.generationChosen) text += L" (starting)";
+        else if (!info.generationReason.empty()) text += L" (4x unavailable: " + info.generationReason + L")";
     }
     text += L"\nSharp Upscale: ";
     const auto& p = info.presentation;

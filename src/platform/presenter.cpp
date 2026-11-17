@@ -204,6 +204,7 @@ public:
         std::lock_guard lock(statsMutex_);
         auto info = presentation_;
         info.shownRate = presentedFrames_.RateAt(GetTickCount64());
+        info.realRate = realPresentedFrames_.RateAt(GetTickCount64());
         return info;
     }
 
@@ -516,6 +517,7 @@ private:
             if (presented && uniqueFrame && lastFrame_) {
                 const double latencyMs = QpcToMs(QpcNow() - lastFrame_->arrivalQpc);
                 std::lock_guard lock(statsMutex_);
+                realPresentedFrames_.Presented(GetTickCount64());
                 stats_.presented++;
                 latencySumMs_ += latencyMs;
                 if (latencyMs > stats_.worstLatencyMs) stats_.worstLatencyMs = latencyMs;
@@ -896,6 +898,7 @@ private:
     std::mutex statsMutex_;
     PresentationInfo presentation_;
     PresentedFrames presentedFrames_;
+    PresentedFrames realPresentedFrames_;
     Stats stats_;
     double latencySumMs_ = 0.0;
     TimedFrameStats timedStats_;

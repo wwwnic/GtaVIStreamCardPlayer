@@ -75,3 +75,19 @@ warm-up, present history, About states, and 480x270/fullscreen layout bounds. Th
 settings hardware smoke at 4x and forced 30 fps exited cleanly after 20 seconds and logged
 Game 30 / Shown 119, with adjacent 120-present generation intervals and no late outputs.
 A second 10-second 2x smoke measured Game 30 / Shown 60, with 60 presents and 30 Generated Frames per second and zero late outputs. Both runs exited cleanly. Evidence is kept in `build/evidence/smoke-final-4x.log` and `smoke-final-2x.log` in the ticket worktree. The original running app/settings were not changed. At integration, the user reported that the required manual test passed on 51502c5. Individual observations and play duration were not recorded.
+
+## Final review fixes
+
+Game uses successful real endpoint presents while generation is running (pending
+endpoints dropped by an early next arrival are excluded); off mode retains the old
+counter behavior. About now reports owned AMF failure reasons and preserves 2x fallback.
+Native-size U/menu toggles always log the actual choice. The explicit 60 fps override
+continues to pass every captured frame as previously documented; ADR 0003 now makes
+that exception to Auto's Unique Frame rule explicit.
+
+Fresh final build passes 338 tests / 6594 assertions. Live UI verification confirmed
+readable lines in actual 480x270 and fullscreen; About 4x, real 30 and total 120; native
+upscale choices logged off/on; actual enlarged FSR 1 at 1280x720 -> 1920x1080; clean exit.
+Failure transport/About behavior is unit-tested using actual AMF call/result examples;
+a deliberate driver failure was not injected into the user's live graphics runtime.
+Ticket 03 records the remaining asynchronous new-size startup bound limitation.

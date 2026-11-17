@@ -201,9 +201,9 @@ UniqueCloseness UniqueFrameProcessor::TakeCloseness() {
     return taken;
 }
 
-std::wstring FpsCounterText(FrameRates rates, int shownRate, int runningFactor) {
+std::wstring FpsCounterText(FrameRates rates, int shownRate, int runningFactor, int realPresentedRate) {
     if (!rates.warm) return L"";
-    if (runningFactor > 1) return L"Game " + std::to_wstring(rates.presentedRate) + L"\nShown " + std::to_wstring(shownRate);
+    if (runningFactor > 1) return L"Game " + std::to_wstring(realPresentedRate) + L"\nShown " + std::to_wstring(shownRate);
     return std::to_wstring(rates.presentedRate) + L" FPS";
 }
 

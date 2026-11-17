@@ -61,6 +61,8 @@ struct App {
     gp::GenerationAvailability generationAvailability = gp::AmfRuntimeInstalled()
         ? gp::GenerationAvailability::Available : gp::GenerationAvailability::MissingRuntime;
     UINT_PTR generationRequest = 0;
+    std::shared_ptr<gp::GenerationNotices> generationNotices = std::make_shared<gp::GenerationNotices>();
+    std::wstring generationReason;
     bool fourAvailable = true;
     gp::ViewerSettings settings;    // every menu override in effect now
     // What is saved: `settings` as the user chose them. Differs only for this
@@ -133,15 +135,18 @@ void ApplyGeneration(App& app) {
         app.presenter.SetFrameGenerator(nullptr);
     } else {
         const bool four = app.settings.generation == gp::GenerationFactor::Quadruple;
-        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, [window = app.window, request](bool quarterOnly) {
-            PostMessageW(window, kGenerationFailed, request, quarterOnly);
-        }));
+        auto onFailure = [window = app.window, request, notices = app.generationNotices](gp::GenerationNotice notice) {
+            notices->Publish(request, std::move(notice));
+            PostMessageW(window, kGenerationFailed, 0, 0);
+        };
+        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, std::move(onFailure)));
     }
 }
 
 void ToggleUpscale(App& app, bool repeated) {
     if (!gp::ToggleSharpUpscale(app.settings, repeated)) return;
     app.remembered.sharpUpscale = app.settings.sharpUpscale;
+    gp::Log("Menu: Sharp upscale %s", app.settings.sharpUpscale ? "on" : "off");
     app.presenter.SetSharpUpscale(app.settings.sharpUpscale);
     app.feedback.Show(app.settings.sharpUpscale ? "Sharp upscale on" : "Sharp upscale off");
 }
@@ -154,6 +159,7 @@ void ToggleGeneration(App& app) {
     }
     auto next = gp::NextGeneration(app.settings.generation);
     if (!app.fourAvailable && next == gp::GenerationFactor::Quadruple) next = gp::GenerationFactor::Off;
+    if (app.fourAvailable) app.generationReason.clear();
     app.settings.generation = app.remembered.generation = next;
     ApplyGeneration(app);
     const std::string line = std::string("Frame generation ") + gp::GenerationName(next);
@@ -185,6 +191,7 @@ void ShowAbout(App& app) {
     info.frameRate = app.settings.frameRate;
     info.presentation = app.presenter.Presentation();
     info.generationAvailability = app.generationAvailability;
+    info.generationReason = app.generationReason;
     info.generationChosen = app.settings.generation != gp::GenerationFactor::Off;
     info.sharpUpscaleChosen = app.settings.sharpUpscale;
     const std::wstring text = gp::AboutText(info);
@@ -525,16 +532,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     switch (message) {
     case kGenerationFailed:
-        if (!app || wParam != app->generationRequest) return 0;
-        if (lParam) {
-            app->fourAvailable = false;
-            app->settings.generation = gp::GenerationFactor::Double;
-            app->feedback.Show("Frame generation 2x");
-        } else if (app->generationAvailability == gp::GenerationAvailability::Available) {
-            app->generationAvailability = gp::GenerationAvailability::Failed;
-            app->settings.generation = gp::GenerationFactor::Off;
-            ApplyGeneration(*app);
-            app->feedback.Show("Frame generation not available");
+        if (!app) return 0;
+        for (const auto& event : app->generationNotices->Take()) {
+            if (event.request != app->generationRequest) continue;  // stale request, owned reason is released
+            const auto& notice = event.notice;
+            // AMF reasons are our ASCII call names and numeric AMF_RESULT codes.
+            app->generationReason.assign(notice.reason.begin(), notice.reason.end());
+            if (notice.outcome == gp::GenerationOutcome::FallbackToDouble) {
+                app->fourAvailable = false;
+                app->settings.generation = gp::GenerationFactor::Double;
+                app->feedback.Show("Frame generation 2x");
+            } else if (app->generationAvailability == gp::GenerationAvailability::Available) {
+                app->generationAvailability = gp::GenerationAvailability::Failed;
+                app->settings.generation = gp::GenerationFactor::Off;
+                ApplyGeneration(*app);
+                app->feedback.Show("Frame generation not available");
+            }
         }
         return 0;
     case WM_KEYDOWN:

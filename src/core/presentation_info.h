@@ -12,6 +12,7 @@ struct PresentationInfo {
     bool sharpUpscale = false;
     uint32_t feedWidth = 0, feedHeight = 0;
     int shownWidth = 0, shownHeight = 0;
+    int realRate = 0; // successful real endpoint presents, excluding generated frames/repaints
 };
 
 // Successful presents only, including repaint and Generated Frames. No refresh cap.

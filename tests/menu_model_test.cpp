@@ -285,7 +285,35 @@ TEST_CASE("About with generation labels the override as Game and all presents as
     info.frameRate = gp::GameRateOverride::Fps30;
     info.rates = {60,60,30,true};
     info.presentation = {4,120};
+    info.presentation.realRate = 30;
     CHECK(Contains(gp::AboutText(info), L"Game: 30 fps (Frame rate set to 30)"));
     CHECK(Contains(gp::AboutText(info), L"Shown: 120 fps (all frames presented)"));
     CHECK_FALSE(Contains(gp::AboutText(info), L"Shown: 30 fps"));
+}
+
+#include "core/generation_notice.h"
+TEST_CASE("generation notices own reasons while crossing to the window thread") {
+    gp::GenerationNotices notices;
+    std::string reason = "FRC Init AMF_RESULT 13";
+    notices.Publish(7, {gp::GenerationOutcome::Failed, reason});
+    reason.clear();
+    const auto pending = notices.Take();
+    REQUIRE(pending.size() == 1);
+    CHECK(pending[0].request == 7);
+    CHECK(pending[0].notice.outcome == gp::GenerationOutcome::Failed);
+    CHECK(pending[0].notice.reason == "FRC Init AMF_RESULT 13");
+    CHECK(notices.Take().empty());
+    notices.Publish(8, {gp::GenerationOutcome::FallbackToDouble, "second FRC Init AMF_RESULT 1"});
+    CHECK(notices.Take()[0].notice.outcome == gp::GenerationOutcome::FallbackToDouble);
+}
+TEST_CASE("About reports the actual driver failure and preserves fallback to 2x") {
+    gp::AboutInfo info;
+    info.generationAvailability = gp::GenerationAvailability::Failed;
+    info.generationReason = L"FRC Init AMF_RESULT 13";
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (FRC Init AMF_RESULT 13)"));
+    info.generationAvailability = gp::GenerationAvailability::Available;
+    info.presentation.runningFactor = 2;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: 2x (4x unavailable: FRC Init AMF_RESULT 13)"));
+    info.presentation.runningFactor = 0;
+    CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (4x unavailable: FRC Init AMF_RESULT 13)"));
 }

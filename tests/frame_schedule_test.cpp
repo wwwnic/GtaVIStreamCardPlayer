@@ -444,3 +444,34 @@ TEST_CASE("quarter interpolation restarts from the current real frame after a ga
     CHECK_FALSE(gp::CanGenerateQuarters(true, false, false)); // no middle for this interval
     CHECK_FALSE(gp::CanGenerateQuarters(true, true, true));   // Feed restart or pause
 }
+
+#include "core/presentation_info.h"
+TEST_CASE("superseded real endpoints do not count as successful real presents") {
+    FrameSchedule schedule(kSecond);
+    TwoFrames(schedule, 1000 * kMs, 32 * kMs);
+    schedule.Begin(3);
+    gp::PresentedFrames all, real;
+    for (const int ms : {1000,1008}) {
+        const auto due = schedule.DueFrame(ms * kMs);
+        REQUIRE(due.has_value());
+        all.Presented(ms);
+        if (*due == schedule.Generated()) real.Presented(ms);
+        schedule.Presented(ms * kMs);
+    }
+    // An early arrival discards the pending real endpoint of the old sequence.
+    schedule.UniqueFrameArrived(1014 * kMs, 3, 1920, 1080);
+    CHECK(real.RateAt(2000) == 0);
+    CHECK(all.RateAt(2000) == 1);
+    CHECK(schedule.TakeStats().droppedEarly == 2);
+}
+TEST_CASE("a new size can use all quarter frames on its second picture when the driver is ready") {
+    FrameSchedule schedule(kSecond);
+    TwoFrames(schedule, 1000 * kMs, 32 * kMs);
+    CHECK(schedule.UniqueFrameArrived(1032 * kMs, 3, 1280, 720).forgetEarlier);
+    schedule.Begin(0);
+    schedule.Presented(1032 * kMs);
+    REQUIRE(schedule.UniqueFrameArrived(1064 * kMs, 4, 1280, 720).mayGenerate);
+    schedule.Begin(3);
+    CHECK(schedule.Generated() == 3);
+    CHECK(schedule.DueFrame(1064 * kMs) == 0);
+}

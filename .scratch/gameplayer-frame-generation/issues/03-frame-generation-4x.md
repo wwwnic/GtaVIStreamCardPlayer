@@ -67,3 +67,17 @@ For the user. End your work by reporting this checklist:
 2. Pan the camera fast at 4x. Wobble or smearing around the HUD?
 3. Does the game feel too laggy at 4x? Compare with 2x.
 4. Close GamePlayer at 4x and start again. Still 4x?
+
+## Final review: recovery limit
+
+The strict two-Unique-Frame recovery target is not guaranteed when a new size/device
+requires a fresh asynchronous AMF session. Driver initialization has no bounded
+completion time and blocking the Presenter to await it would violate ticket 02.
+The implementation now retains the latest real picture during startup and primes both
+FRC stages on the first ready call, removing the avoidable extra history frame.
+Final hardware evidence: 720p started in 98.4 ms and reached full 4x on session input 2;
+a live switch to 1080p started in 131.8 ms and reached full 4x on input 3 (the first ready
+input). Unsuitable first intervals or missing FRC outputs can delay recovery further.
+The pure schedule supports full 4x on the second new-size picture when the driver and
+interval are ready. This is a disclosed acceptance limitation, not a guaranteed bound.
+Evidence: ticket worktree `build/evidence/review-recovery-final.log`.
