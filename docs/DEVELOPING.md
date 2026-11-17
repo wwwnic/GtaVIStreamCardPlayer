@@ -28,7 +28,7 @@ Remembered settings (ticket 09): the menu choices, volume, mute, Audio Delay and
 
 ## Lossless Scaling
 
-The user's one-time setup guide is `docs/lossless-scaling-setup.md`, written in the user's vertical style (very short lines, one idea per line, no bullets); keep that style when editing it. What keeps the window a good target (ticket 10): the title is set once to exactly "GamePlayer" and never changed (no `SetWindowText`; debug numbers go to the log or the FPS counter, never the title); the exe is `GamePlayer.exe`; DXGI Alt+Enter is disabled and nothing calls `SetFullscreenState`; the Presenter presents only for a new Unique Frame, a resize, a device rebuild, or a text that appears or ends (the FPS counter never presents); fullscreen uses `HWND_TOP`, never topmost, and hides the cursor after 2 s.
+The user's one-time setup guide is `docs/lossless-scaling-setup.md`, written in the user's vertical style (very short lines, one idea per line, no bullets); keep that style when editing it. What keeps the window a good target (ticket 10): the title is set once to exactly "GamePlayer" and never changed (no `SetWindowText`; debug numbers go to the log or the FPS counter, never the title); the exe is `GamePlayer.exe`; DXGI Alt+Enter is disabled and nothing calls `SetFullscreenState`; the Presenter presents only for a new Unique Frame, a resize, a device rebuild, or a text that appears or ends (the FPS counter never presents; the Frame rate override "60 fps (every frame)" passes Repeated Frames on too, so Lossless Scaling then sees 60); fullscreen uses `HWND_TOP`, never topmost, and hides the cursor after 2 s.
 
 ## Module layout
 
@@ -64,9 +64,9 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `menu_bar.*`: the native menu bar, refreshed from `menu_model.h` each time a menu opens.
   - `keep_awake.*`: no system or display sleep while a Feed plays (the Playing state only). Holds a power request (`powercfg /requests`, elevated, lists "GamePlayer: a Feed is playing") and the window thread's execution state, and resets the idle timers each second. Logs take, release (with reason), a minute-by-minute "still held", and every display on / off / dimmed.
   - `settings_store.*`: the settings file's place (`SHGetKnownFolderPath`), reading it, and writing it safely.
-  - `single_instance.*`: a second launch brings the running window forward and exits.
+  - `single_instance.*`: a second launch brings the running window forward once it is shown and exits (waits up to 10 s; if the running copy was closing, this one starts).
   - `log.*`: the debug log.
-- `src/app/main.cpp`: the window. Opens with a 16:9 Video Area (1280x720, smaller if the monitor is), minimum 480x270 at 100% scaling, and keeps 16:9 while dragged. Maximised, fullscreen, snaps and programmatic sizes may give other shapes; the picture then keeps its shape with black bars.
+- `src/app/main.cpp`: the window. Opens with a 16:9 Video Area (1280x720, smaller if the monitor is), minimum 480x270 at 100% scaling, and keeps 16:9 while dragged and when moved to a monitor with other scaling (`WM_DPICHANGED`). Maximised, fullscreen, snaps and programmatic sizes may give other shapes; the picture then keeps its shape with black bars.
 - `third_party/doctest/`: the vendored test framework (one header).
 - `prototype/`: the throwaway prototype from ticket 01. Reference only; not part of the app.
 

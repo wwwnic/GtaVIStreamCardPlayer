@@ -136,6 +136,15 @@ void Fullscreen::Enter() {
     }
     saved_.length = sizeof saved_;
     GetWindowPlacement(window_, &saved_);
+    if (saved_.showCmd != SW_SHOWMAXIMIZED) {
+        // A snapped window's normal position is where it was before the snap;
+        // it returns to where it is now (placement in workspace coordinates).
+        MONITORINFO on = {sizeof on};
+        GetMonitorInfoW(MonitorFromRect(&windowRect, MONITOR_DEFAULTTONEAREST), &on);
+        const LONG dx = on.rcWork.left - on.rcMonitor.left, dy = on.rcWork.top - on.rcMonitor.top;
+        saved_.rcNormalPosition = {windowRect.left - dx, windowRect.top - dy, windowRect.right - dx,
+                                   windowRect.bottom - dy};
+    }
     const Monitor& monitor = monitors[*target];
     monitorName_ = monitor.name;
     on_ = true;

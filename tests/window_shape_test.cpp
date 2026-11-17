@@ -146,3 +146,25 @@ TEST_CASE("a taller frame (a menu bar) is left out of the Video Area") {
     const WindowRect r = KeepVideoArea16x9({0, 0, 1280 + kFrameW, 500}, SizingEdge::Right, kFrameW, menuFrameH, kMinW);
     CHECK(r == WindowRect{0, 0, 1280 + kFrameW, 720 + menuFrameH});
 }
+
+TEST_CASE("moved to a monitor with other scaling, a 16:9 Video Area stays exactly 16:9") {
+    // 1280 x 720 at 100% (frame 16 x 39); Windows suggests the window 1.5x
+    // bigger at 150%, where the frame is 24 x 59: Video Area 1920 x 1079.
+    const int frameW = 24, frameH = 59;
+    const WindowRect suggested = {200, 100, 200 + 1944, 100 + 1138};
+    const WindowRect r = gp::AfterScalingChange(suggested, 1280, 720, frameW, frameH, 720);
+    CHECK(r == WindowRect{200, 100, 200 + 1920 + frameW, 100 + 1080 + frameH});
+
+    SUBCASE("and never below the new monitor's minimum") {
+        const WindowRect small = {0, 0, 640 + frameW, 360 + frameH};
+        const WindowRect shaped = gp::AfterScalingChange(small, 480, 270, frameW, frameH, 720);
+        CHECK(shaped == WindowRect{0, 0, 720 + frameW, 405 + frameH});
+    }
+}
+
+TEST_CASE("moved to a monitor with other scaling, any other shape (a snap) is left as Windows suggests") {
+    const WindowRect suggested = {0, 0, 1440, 1560};
+    CHECK(gp::AfterScalingChange(suggested, 944, 1001, 24, 59, 720) == suggested);
+    CHECK(gp::AfterScalingChange(suggested, 1281, 720, 24, 59, 720) == suggested);  // not whole 16:9 blocks
+    CHECK(gp::AfterScalingChange(suggested, 0, 0, 24, 59, 720) == suggested);
+}

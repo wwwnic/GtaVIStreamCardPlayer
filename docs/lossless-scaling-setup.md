@@ -30,7 +30,9 @@ Menus may have new names.
 
 Research found LSFG 3.1.
 
-Newest news: July 2025.
+Newest news found: July 2025.
+
+Yours may be newer.
 
 Pick the nearest equivalent.
 
@@ -50,9 +52,13 @@ not recorded.
 
 ## 1. Xbox settings
 
-Why: the card captures 1080p60.
+Why: GamePlayer uses 1080p60.
 
-No HDR, VRR or surround.
+GamePlayer shows no HDR.
+
+VRR and surround need
+
+AVerMedia's own software.
 
 Xbox menu names **(not confirmed)**:
 
@@ -89,14 +95,20 @@ Open Lossless Scaling.
 1. Create a new profile.
 2. Name it GamePlayer.
 3. Find the filter field.
-4. Type: `GamePlayer`
+4. Type: `GamePlayer.exe`
 5. Turn on auto scale.
 
-The filter matches the title.
-
-`GamePlayer.exe` also works.
-
 That is the exe name.
+
+It matches only GamePlayer.
+
+The title `GamePlayer` also works.
+
+But it may also match
+
+folders named GamePlayer.
+
+**(not confirmed)**
 
 Auto scale starts it
 
@@ -150,6 +162,10 @@ Performance mode: off.
 
 Capture API: WGC first.
 
+WGC needs Windows 11 24H2.
+
+This PC is newer.
+
 If delay feels high:
 
 try DXGI.
@@ -184,9 +200,11 @@ It can get corrupted.
 
 Turn on Minimize to tray.
 
-Turn off Start minimized
+Find this setting:
 
-at Windows startup.
+`Start minimized at Windows startup`
+
+Turn it off.
 
 The task below replaces it.
 
@@ -201,6 +219,8 @@ Startup would ask every time.
 3. Manage.
 4. Browse local files.
 5. Note the folder path.
+
+Menu names may vary.
 
 Usually:
 
@@ -220,7 +240,21 @@ Usually:
 10. Start a program.
 11. Program: the exe above.
 12. Arguments: `-StartMinimized`
-13. OK, then OK.
+13. OK.
+14. Tab Settings.
+15. Untick this box:
+
+`Stop the task if it runs longer than`
+
+16. OK.
+
+Menu names may vary.
+
+Why step 15:
+
+by default Windows stops it
+
+after 3 days.
 
 `-StartMinimized` comes from users.
 
@@ -235,6 +269,8 @@ Not official.
 3. Play.
 
 Frame generation starts itself.
+
+**(not confirmed)**
 
 ### Is it working?
 
@@ -258,13 +294,19 @@ Frames shown per second.
 
 Blank for two seconds
 
-after it starts.
+after a start or reconnect.
 
 It should match
 
 Lossless Scaling's first number.
 
 ### Did not start?
+
+Is Lossless Scaling in the tray?
+
+If not, start it.
+
+Then check the task.
 
 Click the GamePlayer window once.
 
@@ -330,7 +372,13 @@ That is normal.
 
 Volume keys and messages
 
-redraw GamePlayer once.
+redraw GamePlayer briefly.
+
+Once when shown.
+
+Once when gone.
+
+A held volume key: each step.
 
 A tiny blip. Normal.
 
@@ -378,7 +426,13 @@ While Lossless Scaling runs:
 
 its Sync Mode decides.
 
+**(not confirmed)**
+
 Default mode: no tearing.
+
+Lowest delay: Off (Allow tearing).
+
+It may tear. **(not confirmed)**
 
 ### 60 to 120 on 144 Hz
 
@@ -417,6 +471,10 @@ Keep GamePlayer.log for review.
 
 It sits beside GamePlayer.exe.
 
+Copy it before restarting.
+
+A new start replaces it.
+
 Base far too high?
 
 An overlay may interfere.
@@ -427,7 +485,9 @@ Close Discord or AMD overlays.
 
 Check the profile filter.
 
-It must say `GamePlayer`.
+It must say `GamePlayer.exe`.
+
+Or the title `GamePlayer`.
 
 Then click the window once.
 
@@ -439,15 +499,21 @@ In Lossless Scaling.
 
 ### Settings lost
 
-The settings file corrupted.
+The settings file may be corrupted.
 
-Copy your backup back.
-
-Close Lossless Scaling first.
+1. Close Lossless Scaling.
+2. Copy your backup back.
+3. Start Lossless Scaling.
 
 ### WGC shows a wrong base
 
 Switch Capture API to DXGI.
+
+**(not confirmed)**
+
+Unknown which one counts
+
+GamePlayer's frames right.
 
 ### Screen went dark
 

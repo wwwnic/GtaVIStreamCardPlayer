@@ -27,6 +27,15 @@ struct WindowRect {
 WindowRect KeepVideoArea16x9(WindowRect proposed, SizingEdge edge, int frameWidth, int frameHeight,
                              int minVideoAreaWidth);
 
+// Moved to a monitor with other scaling (WM_DPICHANGED): `resized` is the
+// window at the size Windows suggests there, `frameWidth` and `frameHeight`
+// its frame at the new scaling. A Video Area that was exactly 16:9 before
+// (`oldVideoAreaWidth` x `oldVideoAreaHeight`, whole 16:9 blocks) stays exactly
+// 16:9, like a right-edge drag (top-left kept, at least `minVideoAreaWidth`).
+// Any other shape (a snap) is left as suggested.
+WindowRect AfterScalingChange(WindowRect resized, int oldVideoAreaWidth, int oldVideoAreaHeight, int frameWidth,
+                              int frameHeight, int minVideoAreaWidth);
+
 // Start-up (ticket 09): the window rectangle to reopen at from a remembered
 // one. Its size is kept as it was, 16:9 or not (a snap); only a Video Area
 // below the minimum is shaped like a right-edge drag to the minimum (top-left
