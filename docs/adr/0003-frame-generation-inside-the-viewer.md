@@ -4,7 +4,7 @@ Replaces ADR 0002.
 
 ADR 0002 kept Frame Generation outside the Viewer because a video Feed has no motion vectors or depth and an in-house generator looked like a large effort with uncertain results. A throwaway prototype (branch `prototype/frame-generation`) changed that: AMD's AMF frame rate conversion component (FRC) makes in-between frames from pictures alone, runs on the Viewer's own Direct3D 11 device, and the user judged the result good at 2x and 4x. The Viewer therefore does Frame Generation itself, so that playing needs no second program. The same prototype showed a Sharp Upscale (FSR 1, two shader passes) is worth having for a 720p Feed.
 
-Frame Generation runs on the GPU side of the pipeline, next to the Presenter, after the frame has been converted to RGB. The Processor keeps its one job on CPU frames: dropping Repeated Frames so only Unique Frames go on. The rules for when each frame is shown are pure logic in `core`, unit-tested like the rest.
+Frame Generation runs on the GPU side of the pipeline, next to the Presenter, after the frame has been converted to RGB. The Processor keeps its one job on CPU frames: with Auto, dropping Repeated Frames so only Unique Frames go on. The existing explicit `60 fps (every frame)` override intentionally passes every captured frame, including Repeated Frames, to the Presenter and FRC. Generation follows that chosen cadence; it does not override the user's explicit frame-rate setting. The rules for when each frame is shown are pure logic in `core`, unit-tested like the rest.
 
 ## Considered options
 

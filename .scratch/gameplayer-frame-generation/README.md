@@ -60,3 +60,27 @@ only one generator. Pure tests cover the text, rate history, About states and mi
 observed Game 30 / Shown 119, adjacent generation lines 120 presents/s, 90 generated
 from 30 attempts, no stale outputs or late skips, and clean exit. A second 2x smoke observed Game 30 / Shown 60 and 60 presents/s, with zero late outputs.
 All 333 tests / 6572 assertions pass. The user reported that the required manual test passed on 51502c5.
+
+## Final review fixes
+
+Generation's Game line now counts successful real endpoint presents, excluding real
+endpoints superseded before presentation. Off mode keeps its established Processor
+rate; Shown still counts every successful present. Typed owned notifications carry
+actual AMF call/result failure reasons into About, including continued 2x fallback.
+U/menu choices are logged even when native-size playback does not use FSR 1.
+The explicit 60 fps (every frame) override intentionally passes repeats; this existing
+user override is preserved and clarified in ADR 0003 and DEVELOPING.
+
+The Presenter retains the latest startup picture to prime both FRC stages as soon as
+the worker finishes. A new-size driver session still has unbounded asynchronous setup.
+Final live verification measured startup 98.4 ms and full 4x on input 2 at 720p; switching
+to 1080p took 131.8 ms and full 4x on input 3 (first ready input). Thus the literal
+within-two-input bound in ticket 03 cannot be guaranteed across size/device changes;
+it is recorded as a limitation rather than achieved. Existing-session recovery still
+uses the tested two-picture history rule.
+
+Fresh MSVC build: 338 tests / 6594 assertions pass. UI verification observed both lines
+readable at actual 480x270 and fullscreen, About reporting 4x and measured rates, native
+U toggles logging both choices, FSR 1 switching on for 720p -> 1920x1080, and clean exit.
+Hardware evidence in the ticket worktree: `build/evidence/review-resolution-ui.log` and
+`review-recovery-final.log`. The final 4x counter read Game 30 / Shown 119–120.

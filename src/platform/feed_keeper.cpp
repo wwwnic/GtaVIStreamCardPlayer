@@ -229,7 +229,7 @@ void FeedKeeper::UpdateFpsCounter() {
     const bool show = fpsCounter_ && machine_.State() == VideoAreaState::Playing;
     const auto info = presenter_.Presentation();
     presenter_.ShowTextWithNextFrame(TextPlace::TopLeft,
-                                     show ? VideoAreaText{FpsCounterText(Rates(), info.shownRate, info.runningFactor), L""} : VideoAreaText{});
+                                     show ? VideoAreaText{FpsCounterText(Rates(), info.shownRate, info.runningFactor, info.realRate), L""} : VideoAreaText{});
 }
 
 // Once a second: enough to tell from the log alone whether a game's Repeated
@@ -241,7 +241,7 @@ void FeedKeeper::LogFrames() {
     const UniqueCloseness close = processor_->TakeCloseness();
     const FrameRates rates = Rates();
     const auto presentation = presenter_.Presentation();
-    std::string counter = ToUtf8(FpsCounterText(rates, presentation.shownRate, presentation.runningFactor));
+    std::string counter = ToUtf8(FpsCounterText(rates, presentation.shownRate, presentation.runningFactor, presentation.realRate));
     // Keep the two-line screen text on one timestamped log line.
     for (size_t at = 0; (at = counter.find('\n', at)) != std::string::npos; at += 2)
         counter.replace(at, 1, "\\n");

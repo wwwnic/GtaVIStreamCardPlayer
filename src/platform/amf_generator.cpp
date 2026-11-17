@@ -187,7 +187,7 @@ struct Session {
 
 class AmfGenerator final : public FrameGenerator {
 public:
-    AmfGenerator(bool four, std::function<void(bool)> failed) : four_(four), failed_(std::move(failed)) {}
+    AmfGenerator(bool four, std::function<void(GenerationNotice)> failed) : four_(four), failed_(std::move(failed)) {}
 
     int Generate(const Input& frame) override {
         if (!session_ || session_->device.Get() != frame.device ||
@@ -198,6 +198,14 @@ public:
             protection->SetMultithreadProtected(TRUE);
             session_ = std::make_shared<Session>(frame);
             announced_ = false;
+            startupFrames_ = 1;
+            readyInputs_ = 0;
+            reportedRecovery_ = false;
+            warmup_.Reset();
+            auto desc = session_->TextureDesc();
+            if (FAILED(frame.device->CreateTexture2D(&desc, nullptr, &warmup_)))
+                Log("FrameGen: cannot retain a warm-up picture; history starts after setup");
+            RememberWarmup(frame);
             try {
                 std::thread([session = session_, four = four_] {
                     session->Start(four);
@@ -208,17 +216,38 @@ public:
             return 0;
         }
         auto& s = *session_;
-        if (!s.started.load(std::memory_order_acquire)) return 0;
+        if (!s.started.load(std::memory_order_acquire)) {
+            ++startupFrames_;
+            RememberWarmup(frame);
+            return 0;
+        }
         if (!s.failure.empty()) return Fail(s.failure.c_str());
         if (!s.quarterFailure.empty()) FallBack(s.quarterFailure);
-        if (!announced_) {
-            Log("FrameGen: FRC started in %.1f ms, DX11 BGRA %ux%u", SinceMs(s.initStart), s.width, s.height);
+        const bool becameReady = !announced_;
+        if (becameReady) {
+            Log("FrameGen: FRC started in %.1f ms, DX11 BGRA %ux%u, %u real frames during setup",
+                SinceMs(s.initStart), s.width, s.height, startupFrames_);
             announced_ = true;
         }
         if (s.first.havePrevious && frame.forgetEarlier) {
             if (!s.Check("Flush", s.first.frc->Flush())) return Fail(s.failure.c_str());
             s.first.havePrevious = false;
         }
+        // Driver setup is asynchronous and has no bounded duration. Retain the
+        // latest real picture while it runs, then prime both stages here without
+        // asking the worker to touch the Presenter's immediate context. This
+        // avoids discarding the first new-size picture and another warm-up frame.
+        if (!s.first.havePrevious && warmup_ && !frame.forgetEarlier) {
+            auto previous = frame;
+            previous.picture = warmup_.Get();
+            previous.sequence = warmupSequence_;
+            s.first.havePrevious = s.Submit(s.first, previous, late_);
+            if (four_ && s.failure.empty()) {
+                previous.sequence *= 2;
+                s.second.havePrevious = s.Submit(s.second, previous, late_);
+            }
+        }
+        warmup_.Reset();
         const auto start = Clock::now();
         const bool attempt = s.first.havePrevious && frame.mayGenerate;
         const bool made = s.Submit(s.first, frame, late_) && attempt && s.Receive(s.first, frame, s.middle, late_);
@@ -237,6 +266,14 @@ public:
             sum_ += ms;
             worst_ = std::max(worst_, ms);
         }
+        ++readyInputs_;
+        if (four_ && generated_ == 3 && !reportedRecovery_) {
+            reportedRecovery_ = true;
+            Log("FrameGen: full 4x on real input %u of this session (%u startup, %u ready)",
+                startupFrames_ + readyInputs_, startupFrames_, readyInputs_);
+        }
+        if (becameReady)
+            Log("FrameGen: first ready output %d Generated Frames after %u startup frames", generated_, startupFrames_);
         return generated_;
     }
 
@@ -246,7 +283,7 @@ public:
         return session_->middle.view.Get();
     }
     int RunningFactor() const override { return announced_ ? (four_ ? 4 : 2) : 0; }
-    void ReleaseDevice() override { session_.reset(); announced_ = false; }
+    void ReleaseDevice() override { session_.reset(); warmup_.Reset(); announced_ = false; }
 
     void NotePresented() override {
         ++presented_;
@@ -260,6 +297,12 @@ public:
     }
 
 private:
+    void RememberWarmup(const Input& frame) {
+        if (!warmup_) return;
+        frame.context->CopyResource(warmup_.Get(), frame.picture);
+        warmupSequence_ = frame.sequence;
+    }
+
     int GenerateQuarters(Session& s, const Input& frame, bool middleReady) {
         auto& stage = s.second;
         Input real = frame;
@@ -282,20 +325,23 @@ private:
 
     void FallBack(std::string& reason) {
         Log("FrameGen: second FRC unavailable (%s), using 2x", reason.c_str());
-        reason.clear();
         four_ = false;
-        failed_(true);
+        failed_({GenerationOutcome::FallbackToDouble, std::exchange(reason, {})});
     }
 
     int Fail(const char* reason) {
         Log("FrameGen: not available: %s", reason);
-        failed_(false);
+        failed_({GenerationOutcome::Failed, reason});
         return kCannotBeUsed;
     }
     bool four_;
     int generated_ = 0;
     unsigned quarters_ = 0;
-    std::function<void(bool)> failed_;
+    ComPtr<ID3D11Texture2D> warmup_;
+    uint64_t warmupSequence_ = 0;
+    unsigned startupFrames_ = 0, readyInputs_ = 0;
+    bool reportedRecovery_ = false;
+    std::function<void(GenerationNotice)> failed_;
     std::shared_ptr<Session> session_;
     bool announced_ = false;
     Clock::time_point second_ = Clock::now();
@@ -311,7 +357,7 @@ bool AmfRuntimeInstalled() {
            GetFileAttributesW((std::wstring(directory) + L"\\" + AMF_DLL_NAME).c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-std::shared_ptr<FrameGenerator> MakeAmfGenerator(bool four, std::function<void(bool)> failed) {
+std::shared_ptr<FrameGenerator> MakeAmfGenerator(bool four, std::function<void(GenerationNotice)> failed) {
     return std::make_shared<AmfGenerator>(four, std::move(failed));
 }
 

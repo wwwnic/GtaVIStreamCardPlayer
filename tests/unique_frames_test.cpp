@@ -530,9 +530,9 @@ TEST_CASE("with tolerance zero the same noisy repeat is a Unique Frame") {
 }
 
 TEST_CASE("Frame Generation counter uses measured presents without a refresh cap") {
-    CHECK(gp::FpsCounterText({60,30,30,true}, 60, 2) == L"Game 30\nShown 60");
-    CHECK(gp::FpsCounterText({60,30,30,true}, 120, 4) == L"Game 30\nShown 120");
-    CHECK(gp::FpsCounterText({60,60,60,true}, 240, 4) == L"Game 60\nShown 240");
+    CHECK(gp::FpsCounterText({60,30,30,true}, 60, 2, 30) == L"Game 30\nShown 60");
+    CHECK(gp::FpsCounterText({60,30,30,true}, 120, 4, 30) == L"Game 30\nShown 120");
+    CHECK(gp::FpsCounterText({60,60,60,true}, 240, 4, 60) == L"Game 60\nShown 240");
     CHECK(gp::FpsCounterText({60,30,30,true}, 57, 0) == L"30 FPS"); // off, starting or failed
     CHECK(gp::FpsCounterText({60,30,30,false}, 120, 4).empty());
 }
@@ -558,4 +558,18 @@ TEST_CASE("chosen generation that is not running keeps the original counter") {
 TEST_CASE("generation counter stays blank through the Feed warm-up") {
     CHECK(gp::FpsCounterText({60,30,30,false}, 60, 2).empty());
     CHECK(gp::FpsCounterText({60,30,30,false}, 120, 4).empty());
+}
+
+TEST_CASE("generation counter excludes real endpoints superseded before a successful present") {
+    CHECK(gp::FpsCounterText({60,30,30,true}, 100, 4, 20) == L"Game 20\nShown 100");
+    CHECK(gp::FpsCounterText({60,30,30,true}, 100, 0, 20) == L"30 FPS");
+    gp::PresentedFrames real;
+    gp::PresentedFrames all;
+    for (int t = 0; t < 2000; t += 50) {
+        all.Presented(t); // generated present
+        all.Presented(t + 10); // real endpoint present; the other ten real endpoints never presented
+        real.Presented(t + 10);
+    }
+    CHECK(real.RateAt(2000) == 20);
+    CHECK(all.RateAt(2000) == 40);
 }

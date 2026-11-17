@@ -63,6 +63,7 @@ std::wstring HotkeysText();
 struct AboutInfo {
     PresentationInfo presentation;
     GenerationAvailability generationAvailability = GenerationAvailability::Available;
+    std::wstring generationReason;
     bool generationChosen = false;
     bool sharpUpscaleChosen = false;
     std::wstring device;              // the one opened last; empty: none
