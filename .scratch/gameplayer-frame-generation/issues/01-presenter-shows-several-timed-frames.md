@@ -4,7 +4,15 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
+
+## Validation recorded at integration
+
+The final MSVC build and unit suite passed after the Feed restart change. The user confirmed normal playback and the visual checks with the volume keys, FPS counter and fullscreen toggle.
+
+The 1080p60 smoke run preceded the final Feed restart change. Steady full seconds showed 60 presents with the switch off, 120 at 2x and 240 at 4x. Maximum measured lateness was 0.539 ms at 2x and 0.556 ms at 4x. At 4x the log counted three early drops during startup and zero late skips.
+
+A 30 fps game and timing during interactive resize, menu use or overlay changes with the developer switch on remain unverified. The visual checks above were made during normal playback.
 
 ## Context
 
@@ -40,11 +48,11 @@ Any real generator; AMD code; the G key or a menu item; the Sharp Upscale; chang
 - [ ] With the developer switch off, the Viewer presents exactly as before this ticket: same present count per second, same V-sync and tearing behaviour.
 - [ ] With the developer switch at 2 and at 4, the log shows frames presented equal to 2 and 4 times the Unique Frames per second, on a 60 fps and (if a game allows) a 30 fps Game Rate.
 - [ ] Showing a feedback line (volume key held), resizing the window and opening a menu while the switch is on do not bunch frames: the lateness in the log stays small and the presented count stays right.
-- [ ] A Unique Frame arriving early drops the rest of the old sequence; the log counts it; nothing is shown out of order.
-- [ ] After a start, a Feed restart, a device rebuild, a size change, a pause over 150 ms or an unusable interval, the next Unique Frame is shown at once, alone.
+- [x] A Unique Frame arriving early drops the rest of the old sequence; the log counts it; nothing is shown out of order.
+- [x] After a start, a Feed restart, a device rebuild, a size change, a pause over 150 ms or an unusable interval, the next Unique Frame is shown at once, alone.
 - [ ] Texts in the Video Area are drawn on every frame of a sequence and appear and end on time.
-- [ ] Unit tests cover: due times for k = 1 and k = 3; a late present not moving later due times; early arrival of the next Unique Frame; every "when not to generate" case; the interval taken from arrival times.
-- [ ] `docs/DEVELOPING.md` describes the new part, its threads and the developer switch.
+- [x] Unit tests cover: due times for k = 1 and k = 3; a late present not moving later due times; early arrival of the next Unique Frame; every "when not to generate" case; the interval taken from arrival times.
+- [x] `docs/DEVELOPING.md` describes the new part, its threads and the developer switch.
 
 ## How to verify
 
