@@ -1,6 +1,5 @@
 // The generator the Presenter asks for Generated Frames (ADR 0003): on the GPU
-// side, after the frame was converted to RGB. No real one exists yet; the
-// developer switch's stand-in is at the bottom.
+// side, after the frame was converted to RGB.
 #pragma once
 
 #include <cstdint>
@@ -42,6 +41,7 @@ public:
     static constexpr int kCannotBeUsed = -1;
 
     virtual ~FrameGenerator() = default;
+    virtual void NotePresented() {}  // successful present while this generator is in use
 
     // Takes Unique Frame N and answers how many Generated Frames between N-1
     // and N are ready to show now: 0, 1 or 3. kCannotBeUsed: not at all (no

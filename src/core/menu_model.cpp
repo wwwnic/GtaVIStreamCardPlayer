@@ -75,11 +75,18 @@ AudioMenu AudioItems(const AudioSettings& audio) {
     return menu;
 }
 
-ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn) {
+ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, GenerationAvailability availability) {
     ViewMenu menu;
     menu.fullscreen = {L"Fullscreen\tF11", fullscreenOn, true};
     menu.alwaysOnTop = {L"Always on top", settings.alwaysOnTop, true};
-    menu.vsync = {L"V-sync", settings.vsync, true};
+    const bool available = availability == GenerationAvailability::Available;
+    const bool generating = available && settings.generation != GenerationFactor::Off;
+    menu.generation = {L"Frame generation\tG", generating, available};
+    if (availability == GenerationAvailability::MissingRuntime)
+        menu.generation.label = L"Frame generation (needs an AMD graphics card)\tG";
+    if (availability == GenerationAvailability::Failed)
+        menu.generation.label = L"Frame generation not available\tG";
+    menu.vsync = {L"V-sync", settings.vsync, !generating};
     menu.fpsCounter = {L"FPS counter\tF", settings.fpsCounter, true};
     return menu;
 }
@@ -90,6 +97,7 @@ std::wstring HotkeysText() {
            L"M\tMute / unmute\n"
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
+           L"G\tFrame generation off / 2x\n"
            L"F\tFPS counter (frames shown per second)\n"
            L"\nAlt opens the menu (windowed only).";
 }

@@ -213,3 +213,28 @@ TEST_CASE("About names a card that is there but not playing (busy, failed)") {
     info.mode = gp::CaptureMode{PixelFormat::YUY2, 1920, 1080, 60, 1};
     CHECK_FALSE(Contains(gp::AboutText(info), L"not playing"));
 }
+
+TEST_CASE("G cycles from off to 2x and back") {
+    const auto enabled = gp::NextGeneration(gp::GenerationFactor::Off);
+    CHECK(enabled == gp::GenerationFactor::Double);
+    CHECK(gp::NextGeneration(enabled) == gp::GenerationFactor::Off);
+}
+
+TEST_CASE("View shows Frame generation, its key, and whether V-sync is available") {
+    gp::ViewerSettings settings;
+    CHECK_FALSE(gp::ViewItems(settings, false).generation.checked);
+    settings.generation = gp::GenerationFactor::Double;
+    auto view = gp::ViewItems(settings, false);
+    CHECK(view.generation.label == L"Frame generation\tG");
+    CHECK(view.generation.checked);
+    CHECK_FALSE(view.vsync.enabled);
+    CHECK(gp::HotkeysText().find(L"G\tFrame generation") != std::wstring::npos);
+    view = gp::ViewItems(settings, false, gp::GenerationAvailability::MissingRuntime);
+    CHECK_FALSE(view.generation.enabled);
+    CHECK_FALSE(view.generation.checked);
+    CHECK(view.generation.label.find(L"AMD") != std::wstring::npos);
+    CHECK(view.vsync.enabled);
+    view = gp::ViewItems(settings, false, gp::GenerationAvailability::Failed);
+    CHECK_FALSE(view.generation.enabled);
+    CHECK(view.generation.label.find(L"not available") != std::wstring::npos);
+}

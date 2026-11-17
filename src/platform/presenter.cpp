@@ -484,6 +484,7 @@ private:
 
             const int64_t drawBegan = QpcNow();
             const bool presented = ShowAndPresent(picture);
+            if (presented && generator_) generator_->NotePresented();
             if (due) {
                 schedule_.Presented(presentBegan_, presented);
                 drawLead_ = std::min(presentBegan_ - drawBegan, QpcFrequency() * kLongestDrawLeadMs / 1000);

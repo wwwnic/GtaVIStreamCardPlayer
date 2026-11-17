@@ -22,6 +22,7 @@ RememberedSettings Changed() {
     s.viewer.audio.muted = true;
     s.viewer.audio.audioDelayMs = 150;
     s.viewer.alwaysOnTop = true;
+    s.viewer.generation = gp::GenerationFactor::Double;
     s.viewer.vsync = true;
     s.viewer.fpsCounter = true;
     s.window = gp::SavedWindow{WindowRect{-1800, 120, -1800 + 1296, 120 + 759}, true};
@@ -286,4 +287,9 @@ TEST_CASE("at exit the file is written only if it differs") {
     gp::SettingsSaveTiming timing("same");
     CHECK_FALSE(timing.Differs("same"));
     CHECK(timing.Differs("other"));
+}
+
+TEST_CASE("remembered Frame generation defaults to off on missing or damaged values") {
+    CHECK(SettingsFromText("version=1\nframeGeneration=bogus\n").viewer.generation == gp::GenerationFactor::Off);
+    CHECK(SettingsFromText("").viewer.generation == gp::GenerationFactor::Off);
 }

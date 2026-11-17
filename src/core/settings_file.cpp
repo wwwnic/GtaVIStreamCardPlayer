@@ -159,6 +159,7 @@ std::string SettingsToText(const RememberedSettings& settings) {
                        : std::string("default")) +
          "\n";
     t += std::string("frame_rate=") + RateWord(v.frameRate) + "\n";
+    t += std::string("frameGeneration=") + (v.generation == GenerationFactor::Double ? "2x" : "off") + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
     t += std::string("fps_counter=") + Word(v.fpsCounter) + "\n";
@@ -205,6 +206,7 @@ RememberedSettings SettingsFromText(std::string_view text) {
         if (*x == "30") v.frameRate = GameRateOverride::Fps30;
         else if (*x == "60") v.frameRate = GameRateOverride::Fps60;
     }
+    if (const auto* x = find("frameGeneration"); x && *x == "2x") v.generation = GenerationFactor::Double;
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);
     if (const std::string* x = find("always_on_top")) v.alwaysOnTop = BoolOf(*x).value_or(false);
     if (const std::string* x = find("fps_counter")) v.fpsCounter = BoolOf(*x).value_or(false);
