@@ -13,9 +13,21 @@
 namespace gp {
 
 enum class GenerationAvailability { Available, MissingRuntime, Failed };
-enum class GenerationFactor { Off, Double };
+enum class GenerationFactor { Off, Double, Quadruple };
 constexpr GenerationFactor NextGeneration(GenerationFactor factor) {
-    return factor == GenerationFactor::Off ? GenerationFactor::Double : GenerationFactor::Off;
+    switch (factor) {
+    case GenerationFactor::Off: return GenerationFactor::Double;
+    case GenerationFactor::Double: return GenerationFactor::Quadruple;
+    default: return GenerationFactor::Off;
+    }
+}
+
+constexpr const char* GenerationName(GenerationFactor factor) {
+    switch (factor) {
+    case GenerationFactor::Double: return "2x";
+    case GenerationFactor::Quadruple: return "4x";
+    default: return "off";
+    }
 }
 
 struct ViewerSettings {

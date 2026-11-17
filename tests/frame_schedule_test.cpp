@@ -429,3 +429,18 @@ TEST_CASE("only an output stamped with the current input can be shown") {
     CHECK_FALSE(gp::CurrentGeneratedOutput(42, 41));
     CHECK_FALSE(gp::CurrentGeneratedOutput(42, 43));
 }
+
+TEST_CASE("both quarters must be ready to show more than the middle") {
+    CHECK(gp::ReadyGeneratedFrames(true, true, true) == 3);
+    CHECK(gp::ReadyGeneratedFrames(true, true, false) == 1);
+    CHECK(gp::ReadyGeneratedFrames(true, false, true) == 1);
+    CHECK(gp::ReadyGeneratedFrames(true, false, false) == 1);
+    CHECK(gp::ReadyGeneratedFrames(false, false, false) == 0);
+}
+
+TEST_CASE("quarter interpolation restarts from the current real frame after a gap in its input") {
+    CHECK(gp::CanGenerateQuarters(true, true, false));
+    CHECK_FALSE(gp::CanGenerateQuarters(false, true, false)); // entering 4x from 2x
+    CHECK_FALSE(gp::CanGenerateQuarters(true, false, false)); // no middle for this interval
+    CHECK_FALSE(gp::CanGenerateQuarters(true, true, true));   // Feed restart or pause
+}

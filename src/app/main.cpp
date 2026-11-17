@@ -60,6 +60,8 @@ struct App {
     gp::MenuBar& menu;
     gp::GenerationAvailability generationAvailability = gp::AmfRuntimeInstalled()
         ? gp::GenerationAvailability::Available : gp::GenerationAvailability::MissingRuntime;
+    UINT_PTR generationRequest = 0;
+    bool fourAvailable = true;
     gp::ViewerSettings settings;    // every menu override in effect now
     // What is saved: `settings` as the user chose them. Differs only for this
     // run's fallbacks (a resolution that did not start) and --rate.
@@ -126,11 +128,13 @@ void ToggleFpsCounter(App& app, const char* from) {
 }
 
 void ApplyGeneration(App& app) {
+    const auto request = ++app.generationRequest;
     if (app.settings.generation == gp::GenerationFactor::Off) {
         app.presenter.SetFrameGenerator(nullptr);
     } else {
-        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator([window = app.window] {
-            PostMessageW(window, kGenerationFailed, 0, 0);
+        const bool four = app.settings.generation == gp::GenerationFactor::Quadruple;
+        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, [window = app.window, request](bool quarterOnly) {
+            PostMessageW(window, kGenerationFailed, request, quarterOnly);
         }));
     }
 }
@@ -141,10 +145,12 @@ void ToggleGeneration(App& app) {
                               ? "Frame generation needs an AMD graphics card" : "Frame generation not available");
         return;
     }
-    app.settings.generation = app.remembered.generation = gp::NextGeneration(app.settings.generation);
+    auto next = gp::NextGeneration(app.settings.generation);
+    if (!app.fourAvailable && next == gp::GenerationFactor::Quadruple) next = gp::GenerationFactor::Off;
+    app.settings.generation = app.remembered.generation = next;
     ApplyGeneration(app);
-    const char* line = app.settings.generation == gp::GenerationFactor::Off ? "Frame generation off" : "Frame generation 2x";
-    gp::Log("Menu: %s", line);
+    const std::string line = std::string("Frame generation ") + gp::GenerationName(next);
+    gp::Log("Menu: %s", line.c_str());
     app.feedback.Show(line);
 }
 
@@ -506,7 +512,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     switch (message) {
     case kGenerationFailed:
-        if (app && app->generationAvailability == gp::GenerationAvailability::Available) {
+        if (!app || wParam != app->generationRequest) return 0;
+        if (lParam) {
+            app->fourAvailable = false;
+            app->settings.generation = gp::GenerationFactor::Double;
+            app->feedback.Show("Frame generation 2x");
+        } else if (app->generationAvailability == gp::GenerationAvailability::Available) {
             app->generationAvailability = gp::GenerationAvailability::Failed;
             app->settings.generation = gp::GenerationFactor::Off;
             ApplyGeneration(*app);

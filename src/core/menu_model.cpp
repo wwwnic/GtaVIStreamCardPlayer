@@ -81,7 +81,8 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     menu.alwaysOnTop = {L"Always on top", settings.alwaysOnTop, true};
     const bool available = availability == GenerationAvailability::Available;
     const bool generating = available && settings.generation != GenerationFactor::Off;
-    menu.generation = {L"Frame generation\tG", generating, available};
+    const std::string factor = GenerationName(settings.generation);
+    menu.generation = {L"Frame generation " + std::wstring(factor.begin(), factor.end()) + L"\tG", generating, available};
     if (availability == GenerationAvailability::MissingRuntime)
         menu.generation.label = L"Frame generation (needs an AMD graphics card)\tG";
     if (availability == GenerationAvailability::Failed)
@@ -97,7 +98,7 @@ std::wstring HotkeysText() {
            L"M\tMute / unmute\n"
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
-           L"G\tFrame generation off / 2x\n"
+           L"G\tFrame generation off / 2x / 4x\n"
            L"F\tFPS counter (frames shown per second)\n"
            L"\nAlt opens the menu (windowed only).";
 }

@@ -53,6 +53,12 @@ TEST_CASE("every setting survives a save and a load") {
 
 TEST_CASE("the defaults survive a save and a load too") {
     CHECK(SettingsFromText(SettingsToText(RememberedSettings{})) == RememberedSettings{});
+    SUBCASE("4x frame generation") {
+        RememberedSettings s;
+        s.viewer.generation = gp::GenerationFactor::Quadruple;
+        CHECK(SettingsToText(s).find("frameGeneration=4x\n") != std::string::npos);
+        CHECK(SettingsFromText(SettingsToText(s)) == s);
+    }
     SUBCASE("each frame rate") {
         for (GameRateOverride rate : {GameRateOverride::Auto, GameRateOverride::Fps30, GameRateOverride::Fps60}) {
             RememberedSettings s;

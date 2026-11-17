@@ -12,6 +12,15 @@
 
 namespace gp {
 
+constexpr bool CanGenerateQuarters(bool havePreviousReal, bool haveMiddle, bool forgetEarlier) {
+    return havePreviousReal && haveMiddle && !forgetEarlier;
+}
+
+constexpr int ReadyGeneratedFrames(bool middle, bool firstQuarter, bool lastQuarter) {
+    if (!middle) return 0;
+    return firstQuarter && lastQuarter ? 3 : 1;
+}
+
 constexpr bool CurrentGeneratedOutput(uint64_t submitted, uint64_t returned) {
     return submitted == returned;
 }
