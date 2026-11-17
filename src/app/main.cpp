@@ -139,6 +139,13 @@ void ApplyGeneration(App& app) {
     }
 }
 
+void ToggleUpscale(App& app, bool repeated) {
+    if (!gp::ToggleSharpUpscale(app.settings, repeated)) return;
+    app.remembered.sharpUpscale = app.settings.sharpUpscale;
+    app.presenter.SetSharpUpscale(app.settings.sharpUpscale);
+    app.feedback.Show(app.settings.sharpUpscale ? "Sharp upscale on" : "Sharp upscale off");
+}
+
 void ToggleGeneration(App& app) {
     if (app.generationAvailability != gp::GenerationAvailability::Available) {
         app.feedback.Show(app.generationAvailability == gp::GenerationAvailability::MissingRuntime
@@ -162,6 +169,7 @@ void ApplyAllSettings(App& app) {
         app.sound.SetAudio(s.audio);  // all three in one step, one log line
     }
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
+    app.presenter.SetSharpUpscale(s.sharpUpscale);
     app.presenter.SetVsync(s.vsync);
     if (s.fpsCounter) app.feed.SetFpsCounter(true);  // with the first frame, no present of its own
     if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
@@ -244,6 +252,7 @@ void HandleMenuCommand(App& app, UINT id) {
         gp::Log("Menu: always on top %s, window topmost %s", s.alwaysOnTop ? "on" : "off",
                 (GetWindowLongPtrW(app.window, GWL_EXSTYLE) & WS_EX_TOPMOST) ? "yes" : "no");
         break;
+    case gp::kMenuSharpUpscale: ToggleUpscale(app, false); break;
     case gp::kMenuGeneration: ToggleGeneration(app); break;
     case gp::kMenuVsync:
         if (s.generation != gp::GenerationFactor::Off) break;
@@ -525,6 +534,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         return 0;
     case WM_KEYDOWN:
+        if (app && wParam == 'U') {
+            ToggleUpscale(*app, (lParam & (1 << 30)) != 0);
+            return 0;
+        }
         if (app && wParam == 'G') {
             if (!(lParam & (1 << 30))) ToggleGeneration(*app);
             return 0;

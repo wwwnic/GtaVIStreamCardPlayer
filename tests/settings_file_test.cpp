@@ -299,3 +299,11 @@ TEST_CASE("remembered Frame generation defaults to off on missing or damaged val
     CHECK(SettingsFromText("version=1\nframeGeneration=bogus\n").viewer.generation == gp::GenerationFactor::Off);
     CHECK(SettingsFromText("").viewer.generation == gp::GenerationFactor::Off);
 }
+
+TEST_CASE("Sharp upscale starts off and only valid choices survive a restart") {
+    gp::RememberedSettings settings;
+    CHECK_FALSE(settings.viewer.sharpUpscale);
+    settings.viewer.sharpUpscale = true;
+    CHECK(SettingsFromText(SettingsToText(settings)).viewer.sharpUpscale);
+    CHECK_FALSE(SettingsFromText("version=1\nsharpUpscale=damaged\n").viewer.sharpUpscale);
+}

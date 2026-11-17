@@ -13,4 +13,10 @@ struct PictureRect {
 // The picture is never stretched. An empty area gives an empty rectangle.
 PictureRect FitPicture(int areaWidth, int areaHeight, int aspectW = 16, int aspectH = 9);
 
+constexpr bool UseSharpUpscale(bool enabled, int feedWidth, int feedHeight, PictureRect shown) {
+    return enabled && feedWidth > 0 && feedHeight > 0 &&
+           shown.width >= feedWidth && shown.height >= feedHeight &&
+           (shown.width > feedWidth || shown.height > feedHeight);
+}
+
 }  // namespace gp

@@ -37,6 +37,7 @@ enum MenuCommand : UINT {
     kMenuVsync,
     kMenuFpsCounter,
     kMenuGeneration,
+    kMenuSharpUpscale,
     kMenuHotkeys = 1500,
     kMenuAbout,
 };

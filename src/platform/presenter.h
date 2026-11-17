@@ -94,6 +94,9 @@ public:
     // generator is set: waiting for the monitor would break the timing.
     void SetVsync(bool on);
 
+    // Use EASU and RCAS when the picture is enlarged. Any thread.
+    void SetSharpUpscale(bool on);
+
     // Sets the generator asked for Generated Frames with each Unique Frame,
     // from the next one; empty (the default): none, every frame is shown
     // alone, at once. With one set, a Unique Frame is shown after its

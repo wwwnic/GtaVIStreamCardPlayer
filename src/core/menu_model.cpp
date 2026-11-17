@@ -82,6 +82,7 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     const bool available = availability == GenerationAvailability::Available;
     const bool generating = available && settings.generation != GenerationFactor::Off;
     const std::string factor = GenerationName(settings.generation);
+    menu.sharpUpscale = {L"Sharp upscale\tU", settings.sharpUpscale};
     menu.generation = {L"Frame generation " + std::wstring(factor.begin(), factor.end()) + L"\tG", generating, available};
     if (availability == GenerationAvailability::MissingRuntime)
         menu.generation.label = L"Frame generation (needs an AMD graphics card)\tG";
@@ -98,6 +99,7 @@ std::wstring HotkeysText() {
            L"M\tMute / unmute\n"
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
+           L"U\tSharp upscale\n"
            L"G\tFrame generation off / 2x / 4x\n"
            L"F\tFPS counter (frames shown per second)\n"
            L"\nAlt opens the menu (windowed only).";
