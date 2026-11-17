@@ -28,7 +28,7 @@ The user judged the picture good at 2x and 4x.
 | 01 | Presenter shows several timed frames per Unique Frame | None | done |
 | 02 | Frame Generation 2x | 01 | done |
 | 03 | Frame Generation 4x | 02 | done |
-| 04 | Sharp Upscale | None | ready-for-agent |
+| 04 | Sharp Upscale | None | done |
 | 05 | Counter on two lines, About, guides | 02, 03, 04 | ready-for-agent |
 
 ## Order of work

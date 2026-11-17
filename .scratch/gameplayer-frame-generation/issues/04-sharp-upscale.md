@@ -4,7 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
+
+## Validation recorded at integration
+
+All 325 unit tests passed, and the live capture smoke test succeeded. The user confirmed all five manual checks on `5cae0bc`, including 720p fullscreen playback, HUD and text sharpness, edge and grain quality, window resizing, and persistence after restarting the Viewer.
 
 ## Context
 
