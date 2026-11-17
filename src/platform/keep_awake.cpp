@@ -59,10 +59,12 @@ void KeepAwake::Take() {
     request_ = PowerCreateRequest(&reason);
     if (request_ == INVALID_HANDLE_VALUE) request_ = nullptr;
     if (request_) {
+        // Each failure logged at once, with its own error code.
         const bool display = PowerSetRequest(request_, PowerRequestDisplayRequired) != FALSE;
+        if (!display) Log("Stay awake: PowerSetRequest display failed (error %lu)", GetLastError());
         const bool system = PowerSetRequest(request_, PowerRequestSystemRequired) != FALSE;
+        if (!system) Log("Stay awake: PowerSetRequest system failed (error %lu)", GetLastError());
         powerRequest = display && system;
-        if (!powerRequest) Log("Stay awake: PowerSetRequest failed (error %lu)", GetLastError());
     } else {
         Log("Stay awake: PowerCreateRequest failed (error %lu)", GetLastError());
     }

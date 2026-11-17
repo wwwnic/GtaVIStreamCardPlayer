@@ -41,6 +41,14 @@ WindowRect KeepVideoArea16x9(WindowRect proposed, SizingEdge edge, int frameWidt
     return r;
 }
 
+WindowRect AfterScalingChange(WindowRect resized, int oldVideoAreaWidth, int oldVideoAreaHeight, int frameWidth,
+                              int frameHeight, int minVideoAreaWidth) {
+    const bool was16x9 = oldVideoAreaWidth > 0 && oldVideoAreaWidth % 16 == 0 &&
+                         oldVideoAreaWidth / 16 * 9 == oldVideoAreaHeight;
+    if (!was16x9) return resized;
+    return KeepVideoArea16x9(resized, SizingEdge::Right, frameWidth, frameHeight, minVideoAreaWidth);
+}
+
 std::optional<WindowRect> RestoredWindowRect(WindowRect saved, std::span<const WindowRect> monitors, int frameWidth,
                                              int frameHeight, int minVideoAreaWidth, int slack) {
     const int minWidth = std::max(minVideoAreaWidth, 16);

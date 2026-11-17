@@ -267,6 +267,37 @@ void KeepShapeWhileSizing(HWND window, WPARAM edge, RECT* proposed) {
     *proposed = {shaped.left, shaped.top, shaped.right, shaped.bottom};
 }
 
+// WM_DPICHANGED: the window moved to a monitor with other scaling (dragged,
+// or Win+Shift+arrow). Windows only suggests the new size; without it the
+// frame grows or shrinks and the Video Area loses its 16:9 shape.
+// Fullscreen keeps its cover (same monitor, same pixels); minimised waits.
+// Not during start-up (no App yet): a restored window keeps its saved size.
+void ScalingChanged(App& app, WPARAM wParam, const RECT& suggested) {
+    if (app.fullscreen.IsOn() || IsIconic(app.window)) return;
+    RECT before = {};
+    GetClientRect(app.window, &before);
+    const bool shaped = !IsZoomed(app.window);  // maximised: as Windows suggests
+    SetWindowPos(app.window, nullptr, suggested.left, suggested.top, suggested.right - suggested.left,
+                 suggested.bottom - suggested.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (shaped) {
+        // Measured after the move: the frame is now the new scaling's.
+        const SIZE frame = FrameSize(app.window);
+        RECT now = {};
+        GetWindowRect(app.window, &now);
+        const gp::WindowRect resized = {now.left, now.top, now.right, now.bottom};
+        const gp::WindowRect wanted = gp::AfterScalingChange(resized, before.right, before.bottom, frame.cx, frame.cy,
+                                                             MinVideoAreaWidth(app.window));
+        if (wanted != resized) {
+            SetWindowPos(app.window, nullptr, wanted.left, wanted.top, wanted.right - wanted.left,
+                         wanted.bottom - wanted.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+    RECT client = {};
+    GetClientRect(app.window, &client);
+    gp::Log("Window: scaling now %u dpi, Video Area %ldx%ld (was %ldx%ld)", static_cast<unsigned>(LOWORD(wParam)),
+            client.right, client.bottom, before.right, before.bottom);
+}
+
 // Opening size: a 16:9 Video Area, kDefaultVideoAreaWidth wide or as much as
 // fits in 90% of the monitor's work area.
 void SetDefaultSize(HWND window) {
@@ -466,6 +497,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         // Windowed drags only: maximised and fullscreen have no sizing border.
         KeepShapeWhileSizing(window, wParam, reinterpret_cast<RECT*>(lParam));
         return TRUE;
+    case WM_DPICHANGED:
+        if (app) {
+            ScalingChanged(*app, wParam, *reinterpret_cast<const RECT*>(lParam));
+            return 0;
+        }
+        break;
     case WM_GETMINMAXINFO:
         if (app) {
             const SIZE frame = FrameSize(window);
