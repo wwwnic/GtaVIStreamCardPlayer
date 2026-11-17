@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Frame Generation 2x), 03 (Frame Generation 4x), 04 (Sharp Upscale).
 
-**Status:** implemented; user checks pending
+**Status:** done
 
 ## Context
 
@@ -43,7 +43,7 @@ Any change to how frames are generated or shown; a counter of what the monitor r
 - [x] With Frame Generation off, starting, failed or unavailable, the counter shows the single line it shows today.
 - [x] "Shown" counts every present, with no cap.
 - [x] The counter is still blank for two seconds after a start or Feed restart, hidden behind state messages, and never causes a present.
-- [ ] Both lines are readable at the smallest window and in fullscreen. (Pure layout bounds pass; user visual check pending.)
+- [x] Both lines are readable at the smallest window and in fullscreen. Layout bounds passed automated tests. The user reported that the required manual test passed.
 - [x] Help > About shows the Frame Generation and Sharp Upscale state as described.
 - [x] The setup guide explains the in-app way first, keeps the Lossless Scaling steps, says "one or the other", and keeps the user's vertical style.
 - [x] `docs/DEVELOPING.md` and the sprint README are up to date; the README table marks what is done.
@@ -74,5 +74,4 @@ MSVC RelWithDebInfo build succeeds. All 333 tests / 6572 assertions pass. Pure t
 warm-up, present history, About states, and 480x270/fullscreen layout bounds. The private
 settings hardware smoke at 4x and forced 30 fps exited cleanly after 20 seconds and logged
 Game 30 / Shown 119, with adjacent 120-present generation intervals and no late outputs.
-A second 10-second 2x smoke measured Game 30 / Shown 60, with 60 presents and 30 Generated Frames per second and zero late outputs. Both runs exited cleanly. Evidence is kept in `build/evidence/smoke-final-4x.log` and `smoke-final-2x.log` in the ticket worktree. The original running app/settings were not changed. The manual checklist above remains
-for the user, including actual visual readability and an evening of play.
+A second 10-second 2x smoke measured Game 30 / Shown 60, with 60 presents and 30 Generated Frames per second and zero late outputs. Both runs exited cleanly. Evidence is kept in `build/evidence/smoke-final-4x.log` and `smoke-final-2x.log` in the ticket worktree. The original running app/settings were not changed. At integration, the user reported that the required manual test passed on 51502c5. Individual observations and play duration were not recorded.
