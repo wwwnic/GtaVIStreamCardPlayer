@@ -64,14 +64,18 @@ constexpr int ReadyLadderFrames(int quartersReady, int eighthsReady) {
 // When a ladder's first frame is due on screen (TargetSchedule::Begin's
 // readyTicks). readyTicks: when it could first be displayed (its Generated
 // Frames made, plus a refresh). The ladder's last frame, the Unique Frame
-// itself, must be shown before the next Unique Frame is taken (about an
-// interval after this one, takenTicks) and begins its own ladder. With slow
-// generation (x8: seven FRC calls) readyTicks is too late for that, so the
-// start is at most 1.25 steps after takenTicks: the Unique Frame is then due
-// three quarters of a step before the next is taken, leaving a refresh and
-// some to show it. The steps stay evenly spaced from one ladder to the next;
-// the first frames of a ladder may be passed over instead (the vsyncs spent
-// generating show nothing new anyway).
-int64_t LadderStartTicks(int64_t takenTicks, int64_t readyTicks, int64_t intervalTicks, int generated);
+// itself, must be shown before the next Unique Frame (about an interval after
+// this one's arrivalTicks) is taken and begins its own ladder. On the x8
+// ladder the Presenter takes a Unique Frame at the first vsync after it
+// arrived, just after that present, and its seven FRC calls make readyTicks
+// too late for that. So the start is at most a refresh and 1.25 steps after
+// arrival: the Unique Frame is then due at the latest at the vsync that
+// takes the next one (shown there, not a vsync earlier and then repeated).
+// Counted from the arrival, not the take (which falls on a vsync), so the
+// steps stay evenly spaced from one ladder to the next; a ladder's first
+// eighth may be passed over instead. Only for the x8 ladder (generated 7);
+// x4 and 2x keep readyTicks.
+int64_t LadderStartTicks(int64_t arrivalTicks, int64_t readyTicks, int64_t intervalTicks, int generated,
+                         int64_t refreshTicks);
 
 }  // namespace gp

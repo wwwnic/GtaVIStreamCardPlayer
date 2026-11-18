@@ -693,8 +693,7 @@ private:
         presentedFrames_.Reset(now);  // a new present rate: Shown measures again
     }
 
-    // takenAt: when the pass took the frame from the slot (before converting it).
-    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration, int64_t takenAt) {
+    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration) {
         const FrameSchedule::Arrival arrival = targetSchedule_.UniqueFrameArrived(
             frame.arrivalQpc, frame.sequence, frame.width, frame.height, feedGeneration);
         FrameGenerator::Input input;
@@ -734,7 +733,8 @@ private:
         // late that the Unique Frame itself misses its vsync (x8's seven FRC
         // calls take longer than an eighth; core/ladder_depth.h).
         targetSchedule_.Begin(generated, period,
-                              LadderStartTicks(takenAt, QpcNow() + period, arrival.intervalTicks, generated));
+                              LadderStartTicks(frame.arrivalQpc, QpcNow() + period, arrival.intervalTicks, generated,
+                                               period));
     }
 
     // One pass of the Target loop. A new Unique Frame is taken (and its
@@ -747,16 +747,12 @@ private:
         drawWaiting_ = false;
         if (resized_.exchange(false)) resizeWaiting_ = true;
         CheckTargetRate();
-        auto next = slot_.Take();
-        const int64_t takenAt = QpcNow();
-        if (next && ConvertToPicture(*next->frame)) {
-            lastFrame_ = next->frame;
-            BeginTargetSequence(*next->frame, next->feedGeneration, takenAt);
-            if (!generator_) {  // dropped: the ordinary path shows it
-                drawWaiting_ = true;
-                return;
-            }
-        }
+        // On the x8 ladder a new Unique Frame waits in the slot for the vsync
+        // and is taken just after that present: its seven FRC calls (about
+        // 5-6 ms) then fit before the next vblank instead of straddling one
+        // (a missed vsync). x4 takes it at once, as before.
+        const bool afterPresent = ladderDepth_.Depth() == 8;
+        if (!afterPresent && !TakeTargetFrame()) return;
         if (!vsyncReady_) return;
         vsyncReady_ = false;
         targetVsyncs_++;
@@ -789,6 +785,19 @@ private:
             SampleVsyncs();
         }
         LogTargetSecond();
+        if (afterPresent) TakeTargetFrame();
+    }
+
+    // A new Unique Frame, if one waits: converted, generated, its ladder
+    // begun. False: the generator was dropped (the ordinary path shows it).
+    bool TakeTargetFrame() {
+        auto next = slot_.Take();
+        if (!next || !ConvertToPicture(*next->frame)) return true;
+        lastFrame_ = next->frame;
+        BeginTargetSequence(*next->frame, next->feedGeneration);
+        if (generator_) return true;
+        drawWaiting_ = true;
+        return false;
     }
 
     // The swap chain's frame statistics after a present: vblank times for

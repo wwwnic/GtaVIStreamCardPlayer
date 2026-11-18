@@ -114,36 +114,69 @@ TEST_CASE("The third stage restarts its history from the current real frame afte
     CHECK(gp::ThirdStageStep(false, true, 3, false) == EighthStep::Idle);     // x4 wanted: not fed
 }
 
-TEST_CASE("Ladder start: when generating is slow, no later than 1.25 steps after the Unique Frame was taken") {
+TEST_CASE("Ladder start: no later than a refresh and 1.25 steps after the Unique Frame arrived") {
     const int64_t interval = kSecond / 30;  // an eighth is 4167, a quarter 8333
-    // x8 made in 5.4 ms, a 6.9 ms refresh: ready at 12.3 ms would end the
-    // ladder after the next Unique Frame is taken. 1.25 eighths: 5.2 ms.
-    CHECK(gp::LadderStartTicks(0, 12300, interval, 7) == 5208);
-    // x4 made in 2.5 ms: 9.4 ms is before 1.25 quarters (10.4 ms): unchanged.
-    CHECK(gp::LadderStartTicks(0, 9400, interval, 3) == 9400);
-    CHECK(gp::LadderStartTicks(1000, 9400, interval, 0) == 9400);  // real frames only
-    CHECK(gp::LadderStartTicks(1000, 9400, 0, 7) == 9400);
+    // x8 made in 5.4 ms after a take up to a refresh after arrival: ready
+    // (made + a refresh) at 12.3 to 19.2 ms. The latest start: 6.944 + 5.208.
+    CHECK(gp::LadderStartTicks(0, 19200, interval, 7, k144) == k144 + 5208);
+    CHECK(gp::LadderStartTicks(1000, 20000, interval, 7, k144) == 1000 + k144 + 5208);
+    CHECK(gp::LadderStartTicks(0, 12000, interval, 7, k144) == 12000);  // ready earlier: unchanged
+    // x4 and 2x keep their ready time (ticket 01), even when it is later.
+    CHECK(gp::LadderStartTicks(0, 9400, interval, 3, k144) == 9400);
+    CHECK(gp::LadderStartTicks(0, 12500, kSecond / 60, 3, k144) == 12500);
+    CHECK(gp::LadderStartTicks(0, 30000, interval, 1, k144) == 30000);
+    CHECK(gp::LadderStartTicks(1000, 30000, interval, 0, k144) == 30000);  // real frames only
+    CHECK(gp::LadderStartTicks(1000, 30000, 0, 7, k144) == 30000);
 }
 
+#include <algorithm>
+#include <cstdint>
+#include <vector>
 #include "core/target_schedule.h"
-TEST_CASE("Target x8 at 30 fps with 5.4 ms generation blocking the presenter: every Unique Frame itself is shown") {
-    const int64_t interval = kSecond / 30, generation = 5400;
-    for (const int64_t phase : {0, 1000, 2500, 4000, 6000}) {  // where the arrivals fall between vsyncs
+// The Presenter on the x8 ladder: one pass per vblank; a Unique Frame that
+// arrived waits for the next pass, which presents first, then takes it and
+// generates for `generation` (the next pass waits for that). Every pass's
+// present is displayed a refresh later.
+TEST_CASE("Target x8 at 30 fps, generating 5.4 ms after the present: every Unique Frame shown, pacing steady") {
+    const int64_t interval = kSecond / 30, eighth = interval / 8, generation = 5400;
+    for (const int64_t phase : {0, 1000, 2500, 4000, 6000, 6900}) {  // where the arrivals fall between vblanks
         gp::TargetSchedule schedule(kSecond);
-        int64_t taken = 10000 + phase, nextVsync = 0;
-        int uniques = 0;
-        for (int i = 0; i < 60; i++, taken += interval) {
-            schedule.UniqueFrameArrived(taken, i + 1, 1920, 1080);
-            const int64_t made = taken + generation;
-            schedule.Begin(7, k144, gp::LadderStartTicks(taken, made + k144, interval, 7));
-            uniques++;
-            while (nextVsync < made) nextVsync += k144;  // vsyncs while generating are missed
-            for (; nextVsync < taken + interval; nextVsync += k144) schedule.FrameFor(nextVsync + k144);
+        std::vector<int64_t> arrivals;
+        for (int i = 0; i < 60; i++) arrivals.push_back(10000 + phase + i * interval);
+        size_t next = 0;
+        int current = -1;
+        int64_t busyUntil = 0, lead = 0, lowest = INT64_MAX, highest = INT64_MIN;
+        for (int64_t vblank = 0; vblank < arrivals.back() + interval; vblank += k144) {
+            if (busyUntil >= vblank + k144) continue;  // still generating at the next vblank: missed
+            const int64_t display = vblank + k144;
+            if (const std::optional<int> frame = schedule.FrameFor(display); frame && current > 0) {
+                // Content time of the shown frame: eighths before its Unique Frame.
+                const int64_t content = arrivals[current] - (schedule.Generated() - *frame) * eighth;
+                lead = display - content;
+                lowest = std::min(lowest, lead);
+                highest = std::max(highest, lead);
+            }
+            const int64_t pass = std::max(vblank, busyUntil);
+            if (next < arrivals.size() && arrivals[next] <= pass) {
+                schedule.UniqueFrameArrived(arrivals[next], next + 1, 1920, 1080);
+                busyUntil = pass + generation;
+                schedule.Begin(7, k144, gp::LadderStartTicks(arrivals[next], busyUntil + k144, interval, 7, k144));
+                current = static_cast<int>(next++);
+            }
         }
         const gp::TargetStats stats = schedule.TakeStats();
         CHECK(stats.notShown == 0u);
-        CHECK(stats.uniqueShown >= static_cast<uint32_t>(uniques - 1));  // the last one may be in progress
+        CHECK(stats.uniqueShown >= arrivals.size() - 1);  // the last one may be in progress
         CHECK(stats.ladder == 8);
+        // 4.8 vsyncs per Unique Frame, 8 frames to pick from: most vsyncs
+        // show a new frame; fewer repeats than x4 at 30 fps (24 of 144). Due
+        // a vsync too early, the Unique Frame would be shown again at the
+        // vsync that takes the next, every time (a quarter of all vsyncs).
+        CHECK(stats.repeats * 8 <= stats.vsyncs);
+        // Shown frames follow the content's clock: within 1.75 eighths
+        // (nearest picking, a ladder's first frame early). Anchored to the
+        // take instead, it would wander by a refresh more.
+        CHECK(highest - lowest <= eighth * 7 / 4);
     }
 }
 

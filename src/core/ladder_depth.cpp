@@ -25,9 +25,10 @@ double LadderDepth::GameRate() const {
     return static_cast<double>(arrivals_.size() - 1) * static_cast<double>(ticksPerSecond_) / static_cast<double>(span);
 }
 
-int64_t LadderStartTicks(int64_t takenTicks, int64_t readyTicks, int64_t intervalTicks, int generated) {
-    if (generated < 1 || intervalTicks <= 0) return readyTicks;
-    const int64_t latest = takenTicks + intervalTicks * 5 / (4 * (generated + 1));
+int64_t LadderStartTicks(int64_t arrivalTicks, int64_t readyTicks, int64_t intervalTicks, int generated,
+                         int64_t refreshTicks) {
+    if (generated != 7 || intervalTicks <= 0) return readyTicks;  // x4, 2x: as ticket 01
+    const int64_t latest = arrivalTicks + refreshTicks + intervalTicks * 5 / (4 * (generated + 1));
     return std::min(readyTicks, latest);
 }
 
