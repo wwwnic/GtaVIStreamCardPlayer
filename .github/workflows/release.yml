@@ -1,0 +1,27 @@
+name: Release GamePlayer
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build GamePlayer
+        run: .\build.bat
+
+      - name: Run unit tests
+        run: .\test.bat
+
+      - name: Publish the executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" build/GamePlayer.exe --verify-tag --title "GamePlayer $env:GITHUB_REF_NAME" --generate-notes
