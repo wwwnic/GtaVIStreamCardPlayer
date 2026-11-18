@@ -21,6 +21,7 @@
 #include "core/picture_fit.h"
 #include "core/shown_texts.h"
 #include "core/target_schedule.h"
+#include "core/ladder_depth.h"
 #include "core/vsync_clock.h"
 #include "platform/frame_generator.h"
 #include "platform/log.h"
@@ -612,6 +613,8 @@ private:
             target_ = false;
             if (targetSchedule_.Shown() < targetSchedule_.Generated()) drawWaiting_ = true;
             targetSchedule_.Forget();
+            ladderDepth_.Reset();
+            loggedDepth_ = 4;
             vsyncClock_.Reset();
             vsyncReady_ = false;
             targetRate_ = 0;
@@ -690,7 +693,8 @@ private:
         presentedFrames_.Reset(now);  // a new present rate: Shown measures again
     }
 
-    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration) {
+    // takenAt: when the pass took the frame from the slot (before converting it).
+    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration, int64_t takenAt) {
         const FrameSchedule::Arrival arrival = targetSchedule_.UniqueFrameArrived(
             frame.arrivalQpc, frame.sequence, frame.width, frame.height, feedGeneration);
         FrameGenerator::Input input;
@@ -703,6 +707,18 @@ private:
         input.sequence = frame.sequence;
         input.forgetEarlier = arrival.forgetEarlier;
         input.mayGenerate = arrival.mayGenerate;
+        const int64_t period = vsyncClock_.Period(refreshTicks_);
+        // x4 or x8 from the recent Game Rate (core/ladder_depth.h). A change
+        // takes effect with this Unique Frame; the generator restarts the
+        // third stage's history from it.
+        const int depth = ladderDepth_.Arrived(frame.arrivalQpc, arrival.forgetEarlier, period);
+        input.eighths = depth == 8;
+        if (depth != loggedDepth_) {
+            Log("Target: ladder depth x%d (Game Rate %.1f, %.2f refreshes per Unique Frame)", depth,
+                ladderDepth_.GameRate(), ladderDepth_.GameRate() > 0
+                    ? static_cast<double>(QpcFrequency()) / ladderDepth_.GameRate() / static_cast<double>(period) : 0.0);
+            loggedDepth_ = depth;
+        }
         const int64_t began = QpcNow();
         const int generated = generator_->Generate(input);
         targetGenerateWorst_ = std::max(targetGenerateWorst_, QpcNow() - began);
@@ -714,9 +730,11 @@ private:
         SetRunningFactor(generator_->RunningFactor());
         // FrameFor is asked with display times (a vblank after the present).
         // A present made now is shown a refresh later at the earliest: that
-        // is when the first ladder frame is due on screen, as at 4x.
-        const int64_t period = vsyncClock_.Period(refreshTicks_);
-        targetSchedule_.Begin(generated, period, QpcNow() + period);
+        // is when the first ladder frame is due on screen, as at 4x. Not so
+        // late that the Unique Frame itself misses its vsync (x8's seven FRC
+        // calls take longer than an eighth; core/ladder_depth.h).
+        targetSchedule_.Begin(generated, period,
+                              LadderStartTicks(takenAt, QpcNow() + period, arrival.intervalTicks, generated));
     }
 
     // One pass of the Target loop. A new Unique Frame is taken (and its
@@ -730,9 +748,10 @@ private:
         if (resized_.exchange(false)) resizeWaiting_ = true;
         CheckTargetRate();
         auto next = slot_.Take();
+        const int64_t takenAt = QpcNow();
         if (next && ConvertToPicture(*next->frame)) {
             lastFrame_ = next->frame;
-            BeginTargetSequence(*next->frame, next->feedGeneration);
+            BeginTargetSequence(*next->frame, next->feedGeneration, takenAt);
             if (!generator_) {  // dropped: the ordinary path shows it
                 drawWaiting_ = true;
                 return;
@@ -808,10 +827,10 @@ private:
             snprintf(ladder, sizeof ladder, "real frames only");
         }
         Log("Target: rate %d, vsyncs %u, presents %u, Generated Frames shown %u, Unique Frames shown %u, repeats %u, "
-            "missed vsyncs %u, ladder %s; Unique Frames %u (not shown %u); refresh %.3f ms%s; generate worst %.2f ms; "
-            "occluded %s; vsync times from %s",
+            "missed vsyncs %u, ladder %s (depth x%d, Game Rate %.1f); Unique Frames %u (not shown %u); refresh %.3f ms%s; "
+            "generate worst %.2f ms; occluded %s; vsync times from %s",
             targetRate_, targetVsyncs_, targetPresents_, s.generatedShown, s.uniqueShown, s.repeats, targetMissed_,
-            ladder, s.uniqueFrames, s.notShown, refreshMs,
+            ladder, ladderDepth_.Depth(), ladderDepth_.GameRate(), s.uniqueFrames, s.notShown, refreshMs,
             vsyncClock_.Period(refreshTicks_) != refreshTicks_ ? " measured" : " nominal",
             QpcToMs(targetGenerateWorst_), occluded_ ? "yes" : "no", source);
         targetVsyncs_ = targetPresents_ = targetMissed_ = 0;
@@ -1146,6 +1165,8 @@ private:
     // Target (ADR 0004). Without it nothing below changes what is presented.
     bool target_ = false;
     TargetSchedule targetSchedule_{QpcFrequency()};
+    LadderDepth ladderDepth_{QpcFrequency()};
+    int loggedDepth_ = 4;  // the depth the last `Target: ladder depth` line said
     VsyncClock vsyncClock_;
     bool vsyncReady_ = false;     // the swap chain can take the frame for the next vsync
     bool occluded_ = false;       // the last Target present said the window cannot be seen

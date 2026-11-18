@@ -36,6 +36,9 @@ public:
         // (core/frame_schedule.h says when). It is still given, as N-1 for
         // the next.
         bool mayGenerate = false;
+        // Target's x8 ladder wanted for this Unique Frame (core/ladder_depth.h).
+        // Never set by 2x and 4x; a generator without a third stage ignores it.
+        bool eighths = false;
     };
 
     static constexpr int kCannotBeUsed = -1;
@@ -45,7 +48,7 @@ public:
     virtual void NotePresented() {}  // successful present while this generator is in use
 
     // Takes Unique Frame N and answers how many Generated Frames between N-1
-    // and N are ready to show now: 0, 1 or 3. kCannotBeUsed: not at all (no
+    // and N are ready to show now: 0, 1 or 3 (7 on Target's x8 ladder). kCannotBeUsed: not at all (no
     // runtime, a failed call); the Presenter lets go of the generator and
     // shows Unique Frames alone. It may leave any Direct3D state changed.
     virtual int Generate(const Input& frame) = 0;

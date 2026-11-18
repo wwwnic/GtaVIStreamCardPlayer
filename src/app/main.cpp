@@ -64,6 +64,7 @@ struct App {
     std::shared_ptr<gp::GenerationNotices> generationNotices = std::make_shared<gp::GenerationNotices>();
     std::wstring generationReason;
     bool fourAvailable = true;
+    bool eighthsAvailable = true;  // Target's x8 ladder (third FRC); false after it failed
     gp::ViewerSettings settings;    // every menu override in effect now
     // What is saved: `settings` as the user chose them. Differs only for this
     // run's fallbacks (a resolution that did not start) and --rate.
@@ -141,7 +142,8 @@ void ApplyGeneration(App& app) {
             notices->Publish(request, std::move(notice));
             PostMessageW(window, kGenerationFailed, 0, 0);
         };
-        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, std::move(onFailure)), target);
+        const bool eighths = target && four && app.eighthsAvailable;
+        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, std::move(onFailure), eighths), target);
     }
 }
 
@@ -546,8 +548,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             if (event.request != app->generationRequest) continue;  // stale request, owned reason is released
             const auto& notice = event.notice;
             // AMF reasons are our ASCII call names and numeric AMF_RESULT codes.
-            app->generationReason.assign(notice.reason.begin(), notice.reason.end());
-            if (notice.outcome == gp::GenerationOutcome::FallbackToDouble &&
+            // (About's reason is for 4x; the x8 ladder's goes to the log only.)
+            if (notice.outcome != gp::GenerationOutcome::FallbackToQuadruple)
+                app->generationReason.assign(notice.reason.begin(), notice.reason.end());
+            if (notice.outcome == gp::GenerationOutcome::FallbackToQuadruple) {
+                if (!app->eighthsAvailable) continue;  // said once
+                app->eighthsAvailable = false;  // stays in Target on the x4 ladder
+                app->feedback.Show("Frame generation Target (x4 ladder only)");
+            } else if (notice.outcome == gp::GenerationOutcome::FallbackToDouble &&
                 app->settings.generation == gp::GenerationFactor::Target) {
                 app->fourAvailable = false;  // stays in Target, picking from 2x frames
                 app->feedback.Show("Frame generation Target (2x frames only)");

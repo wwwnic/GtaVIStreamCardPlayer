@@ -1,5 +1,7 @@
 #include "core/ladder_depth.h"
 
+#include <algorithm>
+
 namespace gp {
 
 LadderDepth::LadderDepth(int64_t ticksPerSecond) : ticksPerSecond_(ticksPerSecond) {}
@@ -21,6 +23,12 @@ double LadderDepth::GameRate() const {
     const int64_t span = arrivals_.empty() ? 0 : arrivals_.back() - arrivals_.front();
     if (span * 2 < ticksPerSecond_) return 0;
     return static_cast<double>(arrivals_.size() - 1) * static_cast<double>(ticksPerSecond_) / static_cast<double>(span);
+}
+
+int64_t LadderStartTicks(int64_t takenTicks, int64_t readyTicks, int64_t intervalTicks, int generated) {
+    if (generated < 1 || intervalTicks <= 0) return readyTicks;
+    const int64_t latest = takenTicks + intervalTicks * 5 / (4 * (generated + 1));
+    return std::min(readyTicks, latest);
 }
 
 void LadderDepth::Reset() {

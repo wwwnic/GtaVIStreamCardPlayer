@@ -61,4 +61,17 @@ constexpr int ReadyLadderFrames(int quartersReady, int eighthsReady) {
     return quartersReady == 3 && eighthsReady == 4 ? 7 : quartersReady;
 }
 
+// When a ladder's first frame is due on screen (TargetSchedule::Begin's
+// readyTicks). readyTicks: when it could first be displayed (its Generated
+// Frames made, plus a refresh). The ladder's last frame, the Unique Frame
+// itself, must be shown before the next Unique Frame is taken (about an
+// interval after this one, takenTicks) and begins its own ladder. With slow
+// generation (x8: seven FRC calls) readyTicks is too late for that, so the
+// start is at most 1.25 steps after takenTicks: the Unique Frame is then due
+// three quarters of a step before the next is taken, leaving a refresh and
+// some to show it. The steps stay evenly spaced from one ladder to the next;
+// the first frames of a ladder may be passed over instead (the vsyncs spent
+// generating show nothing new anyway).
+int64_t LadderStartTicks(int64_t takenTicks, int64_t readyTicks, int64_t intervalTicks, int generated);
+
 }  // namespace gp

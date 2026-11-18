@@ -10,11 +10,13 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "components/Component.h"
 #include "components/FRC.h"
 #include "core/Factory.h"
 #include "core/frame_schedule.h"
+#include "core/ladder_depth.h"
 #include "platform/frame_generator.h"
 #include "platform/log.h"
 
@@ -28,7 +30,9 @@ double SinceMs(Clock::time_point start) {
 
 struct Stage {
     amf::AMFComponentPtr frc;
-    std::array<ComPtr<ID3D11Texture2D>, 4> inputs;
+    // Copies of the inputs: two Unique Frames' worth (the third stage takes
+    // four inputs per Unique Frame, so it has eight).
+    std::vector<ComPtr<ID3D11Texture2D>> inputs;
     unsigned next = 0;
     bool havePrevious = false;
 
@@ -53,12 +57,18 @@ struct Session {
     Stage first, second;
     Picture middle, firstQuarter, lastQuarter;
     std::string quarterFailure;
+    // Target's x8 ladder only: the third FRC, fed the quarter stream, and the
+    // eighths it makes (1/8, 3/8, 5/8, 7/8).
+    Stage third;
+    std::array<Picture, 4> eighths;
+    std::string eighthFailure;
     std::string failure;
     std::atomic<bool> started{false};
     Clock::time_point initStart = Clock::now();
 
     Session(const FrameGenerator::Input& in) : device(in.device), width(in.width), height(in.height) {}
     ~Session() {
+        third.Close();
         second.Close();
         first.Close();
         if (context) context->Terminate();
@@ -72,7 +82,7 @@ struct Session {
         return false;
     }
 
-    void Start(bool four) {
+    void Start(bool four, bool withEighths) {
         runtime = LoadLibraryExW(AMF_DLL_NAME, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (!runtime) { failure = "cannot load the AMD driver runtime"; return; }
         auto init = reinterpret_cast<AMFInit_Fn>(GetProcAddress(runtime, AMF_INIT_FUNCTION_NAME));
@@ -91,6 +101,12 @@ struct Session {
         StartStage(factory, second);
         if (failure.empty() && MakePicture(firstQuarter)) MakePicture(lastQuarter);
         quarterFailure.swap(failure);
+        if (!quarterFailure.empty() || !withEighths) return;
+        StartStage(factory, third, 8);
+        for (auto& eighth : eighths) {
+            if (!failure.empty() || !MakePicture(eighth)) break;
+        }
+        eighthFailure.swap(failure);
     }
 
     D3D11_TEXTURE2D_DESC TextureDesc() const {
@@ -111,7 +127,8 @@ struct Session {
         return false;
     }
 
-    void StartStage(amf::AMFFactory* factory, Stage& stage) {
+    void StartStage(amf::AMFFactory* factory, Stage& stage, size_t inputCopies = 4) {
+        stage.inputs.resize(inputCopies);
         auto& frc = stage.frc;
         if (!Check("CreateComponent", factory->CreateComponent(context, AMFFRC, &frc))) return;
         if (!frc) { failure = "no FRC component"; return; }
@@ -187,7 +204,8 @@ struct Session {
 
 class AmfGenerator final : public FrameGenerator {
 public:
-    AmfGenerator(bool four, std::function<void(GenerationNotice)> failed) : four_(four), failed_(std::move(failed)) {}
+    AmfGenerator(bool four, bool eighths, std::function<void(GenerationNotice)> failed)
+        : four_(four), eighths_(four && eighths), failed_(std::move(failed)) {}
 
     int Generate(const Input& frame) override {
         if (!session_ || session_->device.Get() != frame.device ||
@@ -207,8 +225,8 @@ public:
                 Log("FrameGen: cannot retain a warm-up picture; history starts after setup");
             RememberWarmup(frame);
             try {
-                std::thread([session = session_, four = four_] {
-                    session->Start(four);
+                std::thread([session = session_, four = four_, eighths = eighths_] {
+                    session->Start(four, eighths);
                     session->started.store(true, std::memory_order_release);
                 }).detach();
             } catch (const std::system_error&) { return Fail("could not start AMF worker"); }
@@ -223,6 +241,7 @@ public:
         }
         if (!s.failure.empty()) return Fail(s.failure.c_str());
         if (!s.quarterFailure.empty()) FallBack(s.quarterFailure);
+        if (eighths_ && !s.eighthFailure.empty()) EighthsFallBack(s.eighthFailure);
         const bool becameReady = !announced_;
         if (becameReady) {
             Log("FrameGen: FRC started in %.1f ms, DX11 BGRA %ux%u, %u real frames during setup",
@@ -253,6 +272,7 @@ public:
         const bool made = s.Submit(s.first, frame, late_) && attempt && s.Receive(s.first, frame, s.middle, late_);
         generated_ = made ? 1 : 0;
         if (four_ && s.failure.empty()) generated_ = GenerateQuarters(s, frame, made);
+        if (eighths_ && s.failure.empty()) generated_ = GenerateEighths(s, frame, generated_);
         // FRC shares the immediate context. Both Presenter passes rebind all
         // their shader inputs, target and viewport starting from these defaults.
         frame.context->ClearState();
@@ -261,13 +281,20 @@ public:
         if (attempt) {
             ++attempts_;
             made_ += generated_;
-            if (generated_ == 3) quarters_ += 2;
+            if (generated_ >= 3) quarters_ += 2;
             const double ms = SinceMs(start);
             sum_ += ms;
             worst_ = std::max(worst_, ms);
+            if (frame.eighths) ++eighthAttempts_;
+            if (generated_ == 7) {
+                eighthsMade_ += 4;
+                ++eighthLadders_;
+                eighthSum_ += ms;
+                eighthWorst_ = std::max(eighthWorst_, ms);
+            }
         }
         ++readyInputs_;
-        if (four_ && generated_ == 3 && !reportedRecovery_) {
+        if (four_ && generated_ >= 3 && !reportedRecovery_) {
             reportedRecovery_ = true;
             Log("FrameGen: full 4x on real input %u of this session (%u startup, %u ready)",
                 startupFrames_ + readyInputs_, startupFrames_, readyInputs_);
@@ -278,6 +305,13 @@ public:
     }
 
     ID3D11ShaderResourceView* Generated(int index) override {
+        if (generated_ == 7) {
+            // e1, Q1, e3, M, e5, Q3, e7: the eighths at even places.
+            if (index % 2 == 0) return session_->eighths[index / 2].view.Get();
+            if (index == 1) return session_->firstQuarter.view.Get();
+            if (index == 5) return session_->lastQuarter.view.Get();
+            return session_->middle.view.Get();
+        }
         if (generated_ == 3 && index == 0) return session_->firstQuarter.view.Get();
         if (generated_ == 3 && index == 2) return session_->lastQuarter.view.Get();
         return session_->middle.view.Get();
@@ -288,12 +322,19 @@ public:
     void NotePresented() override {
         ++presented_;
         if (SinceMs(second_) < 1000) return;
-        Log("FrameGen: %dx, generated %u from %u attempts, quarter frames %u, presented %u, late outputs dropped %u, "
-            "generation CPU %.2f ms average %.2f ms worst", four_ ? 4 : 2, made_, attempts_, quarters_, presented_, late_,
-            attempts_ ? sum_ / attempts_ : 0, worst_);
+        // Target with a third FRC only: the eighths, and the time of the
+        // Unique Frames that got the whole x8 ladder.
+        char eighths[160] = "";
+        if (eighths_ || eighthAttempts_)
+            snprintf(eighths, sizeof eighths, ", eighth frames %u (x8 wanted %u, made %u, x8 CPU %.2f ms average %.2f ms worst)",
+                     eighthsMade_, eighthAttempts_, eighthLadders_, eighthLadders_ ? eighthSum_ / eighthLadders_ : 0,
+                     eighthWorst_);
+        Log("FrameGen: %dx, generated %u from %u attempts, quarter frames %u%s, presented %u, late outputs dropped %u, "
+            "generation CPU %.2f ms average %.2f ms worst", four_ ? 4 : 2, made_, attempts_, quarters_, eighths,
+            presented_, late_, attempts_ ? sum_ / attempts_ : 0, worst_);
         second_ = Clock::now();
-        made_ = quarters_ = attempts_ = presented_ = late_ = 0;
-        sum_ = worst_ = 0;
+        made_ = quarters_ = attempts_ = presented_ = late_ = eighthsMade_ = eighthAttempts_ = eighthLadders_ = 0;
+        sum_ = worst_ = eighthSum_ = eighthWorst_ = 0;
     }
 
 private:
@@ -323,9 +364,53 @@ private:
         return ReadyGeneratedFrames(middleReady, q1, q3);
     }
 
+    // Target's x8 ladder: the third FRC, fed the quarter stream N-1, Q1, M,
+    // Q3, N (sequence x4: each input its own number), makes the eighths. Only
+    // a ladder with all four eighths is x8 (core/ladder_depth.h).
+    int GenerateEighths(Session& s, const Input& frame, int quarters) {
+        auto& stage = s.third;
+        Input real = frame;
+        real.sequence *= 4;
+        int ready = 0;
+        switch (ThirdStageStep(frame.eighths, stage.havePrevious, quarters, frame.forgetEarlier)) {
+        case EighthStep::Idle:
+            stage.havePrevious = false;  // not fed: its history is lost
+            return quarters;
+        case EighthStep::Restart:
+            // Its history may hold older frames even when havePrevious is false.
+            if (s.Check("eighth FRC Flush", stage.frc->Flush())) stage.havePrevious = s.Submit(stage, real, late_);
+            break;
+        case EighthStep::Generate: {
+            ID3D11Texture2D* const stream[4] = {s.firstQuarter.texture.Get(), s.middle.texture.Get(),
+                                                s.lastQuarter.texture.Get(), frame.picture};
+            for (int i = 0; i < 4 && s.failure.empty(); i++) {
+                Input input = real;
+                input.sequence = real.sequence - 3 + i;
+                input.picture = stream[i];
+                // Every input is submitted even when an output is missing, so
+                // the stream stays whole for the next Unique Frame.
+                if (s.Submit(stage, input, late_) && s.Receive(stage, input, s.eighths[i], late_)) ++ready;
+            }
+            break;
+        }
+        }
+        if (!s.failure.empty()) {
+            EighthsFallBack(s.failure);
+            return quarters;
+        }
+        return ReadyLadderFrames(quarters, ready);
+    }
+
+    void EighthsFallBack(std::string& reason) {
+        Log("FrameGen: third FRC unavailable (%s), Target uses the x4 ladder", reason.c_str());
+        eighths_ = false;
+        failed_({GenerationOutcome::FallbackToQuadruple, std::exchange(reason, {})});
+    }
+
     void FallBack(std::string& reason) {
         Log("FrameGen: second FRC unavailable (%s), using 2x", reason.c_str());
         four_ = false;
+        eighths_ = false;  // the third FRC is fed by the second
         failed_({GenerationOutcome::FallbackToDouble, std::exchange(reason, {})});
     }
 
@@ -335,8 +420,11 @@ private:
         return kCannotBeUsed;
     }
     bool four_;
+    bool eighths_;
     int generated_ = 0;
     unsigned quarters_ = 0;
+    unsigned eighthsMade_ = 0, eighthAttempts_ = 0, eighthLadders_ = 0;
+    double eighthSum_ = 0, eighthWorst_ = 0;
     ComPtr<ID3D11Texture2D> warmup_;
     uint64_t warmupSequence_ = 0;
     unsigned startupFrames_ = 0, readyInputs_ = 0;
@@ -357,8 +445,9 @@ bool AmfRuntimeInstalled() {
            GetFileAttributesW((std::wstring(directory) + L"\\" + AMF_DLL_NAME).c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-std::shared_ptr<FrameGenerator> MakeAmfGenerator(bool four, std::function<void(GenerationNotice)> failed) {
-    return std::make_shared<AmfGenerator>(four, std::move(failed));
+std::shared_ptr<FrameGenerator> MakeAmfGenerator(bool four, std::function<void(GenerationNotice)> failed,
+                                                 bool eighths) {
+    return std::make_shared<AmfGenerator>(four, eighths, std::move(failed));
 }
 
 }  // namespace gp

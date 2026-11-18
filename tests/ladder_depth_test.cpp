@@ -114,6 +114,39 @@ TEST_CASE("The third stage restarts its history from the current real frame afte
     CHECK(gp::ThirdStageStep(false, true, 3, false) == EighthStep::Idle);     // x4 wanted: not fed
 }
 
+TEST_CASE("Ladder start: when generating is slow, no later than 1.25 steps after the Unique Frame was taken") {
+    const int64_t interval = kSecond / 30;  // an eighth is 4167, a quarter 8333
+    // x8 made in 5.4 ms, a 6.9 ms refresh: ready at 12.3 ms would end the
+    // ladder after the next Unique Frame is taken. 1.25 eighths: 5.2 ms.
+    CHECK(gp::LadderStartTicks(0, 12300, interval, 7) == 5208);
+    // x4 made in 2.5 ms: 9.4 ms is before 1.25 quarters (10.4 ms): unchanged.
+    CHECK(gp::LadderStartTicks(0, 9400, interval, 3) == 9400);
+    CHECK(gp::LadderStartTicks(1000, 9400, interval, 0) == 9400);  // real frames only
+    CHECK(gp::LadderStartTicks(1000, 9400, 0, 7) == 9400);
+}
+
+#include "core/target_schedule.h"
+TEST_CASE("Target x8 at 30 fps with 5.4 ms generation blocking the presenter: every Unique Frame itself is shown") {
+    const int64_t interval = kSecond / 30, generation = 5400;
+    for (const int64_t phase : {0, 1000, 2500, 4000, 6000}) {  // where the arrivals fall between vsyncs
+        gp::TargetSchedule schedule(kSecond);
+        int64_t taken = 10000 + phase, nextVsync = 0;
+        int uniques = 0;
+        for (int i = 0; i < 60; i++, taken += interval) {
+            schedule.UniqueFrameArrived(taken, i + 1, 1920, 1080);
+            const int64_t made = taken + generation;
+            schedule.Begin(7, k144, gp::LadderStartTicks(taken, made + k144, interval, 7));
+            uniques++;
+            while (nextVsync < made) nextVsync += k144;  // vsyncs while generating are missed
+            for (; nextVsync < taken + interval; nextVsync += k144) schedule.FrameFor(nextVsync + k144);
+        }
+        const gp::TargetStats stats = schedule.TakeStats();
+        CHECK(stats.notShown == 0u);
+        CHECK(stats.uniqueShown >= static_cast<uint32_t>(uniques - 1));  // the last one may be in progress
+        CHECK(stats.ladder == 8);
+    }
+}
+
 TEST_CASE("Ladder depth: Reset starts over at x4") {
     LadderDepth depth(kSecond);
     int64_t at = 0;

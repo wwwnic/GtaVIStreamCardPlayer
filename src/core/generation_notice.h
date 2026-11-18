@@ -9,7 +9,8 @@
 
 namespace gp {
 
-enum class GenerationOutcome { Failed, FallbackToDouble };
+// FallbackToQuadruple: Target's third FRC failed; Target stays on the x4 ladder.
+enum class GenerationOutcome { Failed, FallbackToDouble, FallbackToQuadruple };
 struct GenerationNotice {
     GenerationOutcome outcome;
     std::string reason;
