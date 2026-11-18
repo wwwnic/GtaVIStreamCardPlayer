@@ -33,6 +33,7 @@ add_library(gameplayer_core STATIC
     src/core/shown_texts.cpp
     src/core/frame_schedule.cpp
     src/core/target_schedule.cpp
+    src/core/vsync_clock.cpp
     src/core/window_shape.cpp
     src/core/menu_model.cpp
     src/core/settings_file.cpp
@@ -86,6 +87,7 @@ add_executable(gameplayer_tests
     tests/shown_texts_test.cpp
     tests/frame_schedule_test.cpp
     tests/target_schedule_test.cpp
+    tests/vsync_clock_test.cpp
     tests/window_shape_test.cpp
     tests/menu_model_test.cpp
     tests/settings_file_test.cpp
