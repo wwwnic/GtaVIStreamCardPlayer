@@ -40,6 +40,8 @@ enum MenuCommand : UINT {
     kMenuSharpUpscale,
     kMenuHotkeys = 1500,
     kMenuAbout,
+    kMenuTargetMonitor = 1600,  // then one per kTargetRatePresets entry
+    kMenuTargetCustom = 1610,   // greyed until ticket 04
 };
 inline constexpr UINT kMenuListMax = 99;
 
@@ -58,6 +60,7 @@ public:
         bool fullscreen = false;
         CaptureCardEntry deviceInUse;    // the one opened last, playing or not
         std::vector<CaptureMode> modes;  // the card's mode list
+        int monitorRefresh = 60;         // of the monitor the window is on: "Monitor (144)"
     };
     // WM_INITMENUPOPUP: brings every check mark and value up to date; the
     // Capture Card list is read from the system as it opens.
@@ -67,11 +70,14 @@ public:
     // Resolution: an inner empty optional is "Default (1080p)".
     std::optional<CaptureCardEntry> CaptureCardFor(UINT id) const;
     std::optional<std::optional<Resolution>> ResolutionFor(UINT id) const;
+    // WM_COMMAND from View > Target rate: the Target Rate it stands for
+    // (kTargetRateMonitor for Monitor). Custom gives nothing (ticket 04).
+    static std::optional<int> TargetRateFor(UINT id);
 
 private:
     HMENU bar_ = nullptr;
     HMENU device_ = nullptr, captureCard_ = nullptr, resolution_ = nullptr, rate_ = nullptr;
-    HMENU audio_ = nullptr, view_ = nullptr, help_ = nullptr;
+    HMENU audio_ = nullptr, view_ = nullptr, help_ = nullptr, targetRate_ = nullptr;
     std::vector<CaptureCardEntry> cards_;       // as listed in captureCard_
     std::vector<OfferedResolution> offered_;    // as listed in resolution_, after the default
 };

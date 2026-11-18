@@ -166,7 +166,8 @@ void ToggleGeneration(App& app) {
     if (app.fourAvailable) app.generationReason.clear();
     app.settings.generation = app.remembered.generation = next;
     ApplyGeneration(app);
-    const std::string line = gp::GenerationLine(next, gp::MonitorRefreshRate(app.window));
+    const std::string line =
+        gp::GenerationLine(next, gp::RateInUse(app.settings.targetRate, gp::MonitorRefreshRate(app.window)));
     gp::Log("Menu: %s", line.c_str());
     if (next == gp::GenerationFactor::Target) {
         gp::Log("Menu: V-sync on for Target (the setting stays %s)", app.settings.vsync ? "on" : "off");
@@ -186,6 +187,12 @@ void ApplyAllSettings(App& app) {
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
     app.presenter.SetSharpUpscale(s.sharpUpscale);
     app.presenter.SetVsync(s.vsync);
+    app.presenter.SetTargetRate(s.targetRate);
+    if (s.targetRate == gp::kTargetRateMonitor) {
+        gp::Log("Menu: Target rate Monitor");
+    } else {
+        gp::Log("Menu: Target rate %d", s.targetRate);
+    }
     if (s.fpsCounter) app.feed.SetFpsCounter(true);  // with the first frame, no present of its own
     if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
     if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
@@ -244,6 +251,19 @@ void HandleMenuCommand(App& app, UINT id) {
         app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
         return;
     }
+    if (const std::optional<int> target = gp::MenuBar::TargetRateFor(id)) {
+        s.targetRate = kept.targetRate = *target;
+        app.presenter.SetTargetRate(*target);  // Target only; 2x and 4x ignore it
+        const int refresh = gp::MonitorRefreshRate(app.window);
+        const int inUse = gp::RateInUse(*target, refresh);
+        if (*target == gp::kTargetRateMonitor) {
+            gp::Log("Menu: Target rate Monitor (%d)", refresh);
+        } else {
+            gp::Log("Menu: Target rate %d (in use %d, monitor %d Hz)", *target, inUse, refresh);
+        }
+        app.feedback.Show("Target rate " + std::to_string(inUse));
+        return;
+    }
     switch (id) {
     case gp::kMenuRateAuto:
     case gp::kMenuRate30:
@@ -298,6 +318,7 @@ void MenuOpening(App& app, HMENU popup) {
     state.fullscreen = app.fullscreen.IsOn();
     state.deviceInUse = {app.feed.DeviceInUse(), app.feed.DeviceIdInUse()};  // checked while not playing too
     state.modes = app.feed.Modes();
+    state.monitorRefresh = gp::MonitorRefreshRate(app.window);
     app.menu.Opening(popup, state);
 }
 

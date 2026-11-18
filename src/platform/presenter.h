@@ -97,6 +97,12 @@ public:
     // this setting as it was.
     void SetVsync(bool on);
 
+    // The Target Rate chosen (ticket 03): kTargetRateMonitor (core/target_rate.h)
+    // or frames per second. Target shows the smaller of it and the refresh,
+    // spread evenly over the vsyncs; an uneven one shows a notice once. 2x
+    // and 4x ignore it. Any thread.
+    void SetTargetRate(int rate);
+
     // Use EASU and RCAS when the picture is enlarged. Any thread.
     void SetSharpUpscale(bool on);
 

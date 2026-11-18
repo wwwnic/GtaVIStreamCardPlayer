@@ -32,6 +32,11 @@ void Update(HMENU menu, UINT id, const MenuItem& item) {
     SetMenuItemInfoW(menu, id, FALSE, &info);
 }
 
+// View > Target rate: Monitor and the presets from kMenuTargetMonitor, Custom last.
+UINT TargetRateId(size_t index, size_t count) {
+    return index + 1 == count ? kMenuTargetCustom : kMenuTargetMonitor + static_cast<UINT>(index);
+}
+
 void Clear(HMENU menu) {
     while (GetMenuItemCount(menu) > 0) DeleteMenu(menu, 0, MF_BYPOSITION);
 }
@@ -77,6 +82,10 @@ MenuBar::MenuBar() {
     Append(view_, kMenuFullscreen, view.fullscreen, false);
     Append(view_, kMenuAlwaysOnTop, view.alwaysOnTop, false);
     Append(view_, kMenuGeneration, view.generation, false);
+    targetRate_ = CreatePopupMenu();
+    const std::vector<MenuItem> targets = TargetRateItems(kTargetRateMonitor, 60);
+    for (UINT i = 0; i < targets.size(); i++) Append(targetRate_, TargetRateId(i, targets.size()), targets[i], true);
+    AddPopup(view_, targetRate_, L"&Target rate");
     Append(view_, kMenuSharpUpscale, view.sharpUpscale, false);
     Append(view_, kMenuVsync, view.vsync, false);
     Append(view_, kMenuFpsCounter, view.fpsCounter, false);
@@ -126,6 +135,15 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuSharpUpscale, view.sharpUpscale);
     Update(view_, kMenuVsync, view.vsync);
     Update(view_, kMenuFpsCounter, view.fpsCounter);
+    const std::vector<MenuItem> targets = TargetRateItems(state.settings.targetRate, state.monitorRefresh);
+    for (size_t i = 0; i < targets.size(); i++) Update(targetRate_, TargetRateId(i, targets.size()), targets[i]);
+}
+
+std::optional<int> MenuBar::TargetRateFor(UINT id) {
+    if (id == kMenuTargetMonitor) return kTargetRateMonitor;
+    if (id > kMenuTargetMonitor && id <= kMenuTargetMonitor + kTargetRatePresets.size())
+        return kTargetRatePresets[id - kMenuTargetMonitor - 1];
+    return std::nullopt;
 }
 
 std::optional<CaptureCardEntry> MenuBar::CaptureCardFor(UINT id) const {
