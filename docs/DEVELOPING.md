@@ -100,7 +100,6 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
 - `third_party/doctest/`: the vendored test framework (one header).
 - `third_party/amf/`: the AMF SDK headers Frame Generation compiles against (MIT).
 - `third_party/fsr1/`: the licence of the FSR 1 code in `sharp_upscale_shader.h` (MIT).
-- `prototype/`: the throwaway prototype from ticket 01. Reference only; not part of the app.
 
 Threads: the window's thread runs the message loop; a Media Foundation thread delivers frames and runs the Processor; the Presenter's thread uploads, converts and presents. The Source's thread never waits for the GPU. Frame Generation starts each AMF driver session on a short-lived, detached worker thread; it holds its own device reference and only sets a flag the Presenter reads when done. Sound has three more: capture and render (MMCSS "Pro Audio"), and a control thread that re-opens the output and writes the sound log lines.
 
