@@ -163,6 +163,9 @@ std::string SettingsToText(const RememberedSettings& settings) {
          (v.generation == GenerationFactor::Target ? "target" : GenerationName(v.generation)) + "\n";
     t += "target_rate=" +
          (v.targetRate == kTargetRateMonitor ? std::string("monitor") : std::to_string(v.targetRate)) + "\n";
+    t += "target_rate_custom=" +
+         (v.customTargetRate == kNoCustomTargetRate ? std::string("none") : std::to_string(v.customTargetRate)) +
+         "\n";
     t += std::string("sharpUpscale=") + Word(v.sharpUpscale) + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
@@ -219,6 +222,12 @@ RememberedSettings SettingsFromText(std::string_view text) {
         const std::optional<int> n = IntOf(*x);
         if (n && *n >= kTargetRateLowest && *n <= kTargetRateHighest) v.targetRate = *n;
     }
+    if (const std::string* x = find("target_rate_custom")) {  // "none", anything unusable too: none
+        const std::optional<int> n = IntOf(*x);
+        if (n && *n >= kTargetRateLowest && *n <= kTargetRateHighest) v.customTargetRate = *n;
+    }
+    // A number in use that is no preset is the custom one, whatever else was saved.
+    if (v.targetRate != kTargetRateMonitor && !IsTargetRatePreset(v.targetRate)) v.customTargetRate = v.targetRate;
     if (const auto* x = find("sharpUpscale")) v.sharpUpscale = BoolOf(*x).value_or(false);
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);
     if (const std::string* x = find("always_on_top")) v.alwaysOnTop = BoolOf(*x).value_or(false);

@@ -6,9 +6,11 @@
 // Pure logic.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace gp {
 
@@ -18,9 +20,32 @@ inline constexpr int kTargetRateMonitor = 0;
 inline constexpr int kTargetRateLowest = 1;  // a saved number is accepted from here (Q10)
 inline constexpr int kTargetRateHighest = 1000;
 
+// The menu's fixed choices after Monitor (ticket 03).
+inline constexpr std::array<int, 3> kTargetRatePresets = {120, 72, 60};
+constexpr bool IsTargetRatePreset(int rate) {
+    for (int preset : kTargetRatePresets) {
+        if (rate == preset) return true;
+    }
+    return false;
+}
+
+// The number last typed in the Custom box, kept while a preset or Monitor is
+// chosen (ticket 04); none until one is typed.
+inline constexpr int kNoCustomTargetRate = 0;
+
+// Ticket 04, the Custom box: what was typed as a Target Rate, if it is one.
+// Whole numbers 1 to 1000 only (Q10/Q12); spaces around are ignored. Nothing
+// otherwise: OK stays disabled and the hint shows.
+std::optional<int> TargetRateTyped(std::wstring_view text);
+inline constexpr wchar_t kTargetRateHint[] = L"1 to 1000";
+
 // The rate in use: the smaller of the Target Rate and the refresh (Q16). The
 // user's number is kept as chosen.
 int RateInUse(int targetRate, int refresh);
+
+// The number the Custom box opens with: the custom one if one was typed,
+// else the rate in use now.
+int CustomBoxStart(int targetRate, int customRate, int refresh);
 
 // Q17: whether a Unique Frame `intervalTicks` after the one before gets real
 // frames only, because the rate in use is not above the Game Rate. A tenth

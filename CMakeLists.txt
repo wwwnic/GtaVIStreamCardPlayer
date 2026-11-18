@@ -59,6 +59,7 @@ add_executable(GamePlayer WIN32
     src/platform/feedback.cpp
     src/platform/menu_bar.cpp
     src/platform/settings_store.cpp
+    src/platform/target_rate_box.cpp
 )
 target_include_directories(GamePlayer SYSTEM PRIVATE third_party/amf)
 target_link_libraries(GamePlayer PRIVATE gameplayer_core

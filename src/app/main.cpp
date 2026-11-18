@@ -40,6 +40,7 @@
 #include "platform/presenter.h"
 #include "platform/settings_store.h"
 #include "platform/single_instance.h"
+#include "platform/target_rate_box.h"
 
 namespace {
 
@@ -195,6 +196,7 @@ void ApplyAllSettings(App& app) {
     } else {
         gp::Log("Menu: Target rate %d", s.targetRate);
     }
+    if (s.customTargetRate != gp::kNoCustomTargetRate) gp::Log("Menu: Target rate Custom kept %d", s.customTargetRate);
     if (s.fpsCounter) app.feed.SetFpsCounter(true);  // with the first frame, no present of its own
     if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
     if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
@@ -216,6 +218,35 @@ void ShowAbout(App& app) {
     gp::Log("Menu: About (signal rate %d, game rate %d, presented rate %d)", info.rates.signalRate,
             info.rates.gameRate, info.rates.presentedRate);
     MessageBoxW(app.window, text.c_str(), L"About GamePlayer", MB_OK | MB_ICONINFORMATION);
+}
+
+// View > Target rate: Monitor, a preset, or the number from the Custom box.
+void ChooseTargetRate(App& app, int target) {
+    app.settings.targetRate = app.remembered.targetRate = target;
+    app.presenter.SetTargetRate(target);  // Target only; 2x and 4x ignore it
+    const int refresh = gp::MonitorRefreshRate(app.window);
+    const int inUse = gp::RateInUse(target, refresh);
+    if (target == gp::kTargetRateMonitor) {
+        gp::Log("Menu: Target rate Monitor (%d)", refresh);
+    } else {
+        gp::Log("Menu: Target rate %d (in use %d, monitor %d Hz)", target, inUse, refresh);
+    }
+    app.feedback.Show("Target rate " + std::to_string(inUse));
+}
+
+// View > Target rate > Custom (ticket 04): the box, then the number typed is
+// the Target Rate and the kept custom one. Modal: the Feed plays on behind it.
+void AskCustomTargetRate(App& app) {
+    const gp::ViewerSettings& s = app.settings;
+    const int start = gp::CustomBoxStart(s.targetRate, s.customTargetRate, gp::MonitorRefreshRate(app.window));
+    gp::Log("Menu: Target rate Custom box open (shows %d)%s", start, app.fullscreen.IsOn() ? ", fullscreen" : "");
+    const std::optional<int> typed = gp::AskTargetRate(app.window, start);
+    if (!typed) {
+        gp::Log("Menu: Target rate Custom box cancelled");
+        return;
+    }
+    app.settings.customTargetRate = app.remembered.customTargetRate = *typed;
+    ChooseTargetRate(app, *typed);
 }
 
 // WM_COMMAND from the menu bar. Each change applies at once.
@@ -254,16 +285,11 @@ void HandleMenuCommand(App& app, UINT id) {
         return;
     }
     if (const std::optional<int> target = gp::MenuBar::TargetRateFor(id)) {
-        s.targetRate = kept.targetRate = *target;
-        app.presenter.SetTargetRate(*target);  // Target only; 2x and 4x ignore it
-        const int refresh = gp::MonitorRefreshRate(app.window);
-        const int inUse = gp::RateInUse(*target, refresh);
-        if (*target == gp::kTargetRateMonitor) {
-            gp::Log("Menu: Target rate Monitor (%d)", refresh);
-        } else {
-            gp::Log("Menu: Target rate %d (in use %d, monitor %d Hz)", *target, inUse, refresh);
-        }
-        app.feedback.Show("Target rate " + std::to_string(inUse));
+        ChooseTargetRate(app, *target);
+        return;
+    }
+    if (id == gp::kMenuTargetCustom) {
+        AskCustomTargetRate(app);
         return;
     }
     switch (id) {

@@ -41,7 +41,7 @@ enum MenuCommand : UINT {
     kMenuHotkeys = 1500,
     kMenuAbout,
     kMenuTargetMonitor = 1600,  // then one per kTargetRatePresets entry
-    kMenuTargetCustom = 1610,   // greyed until ticket 04
+    kMenuTargetCustom = 1610,   // opens the Custom box (ticket 04)
 };
 inline constexpr UINT kMenuListMax = 99;
 
@@ -71,7 +71,7 @@ public:
     std::optional<CaptureCardEntry> CaptureCardFor(UINT id) const;
     std::optional<std::optional<Resolution>> ResolutionFor(UINT id) const;
     // WM_COMMAND from View > Target rate: the Target Rate it stands for
-    // (kTargetRateMonitor for Monitor). Custom gives nothing (ticket 04).
+    // (kTargetRateMonitor for Monitor). Custom gives nothing: it opens a box (main.cpp).
     static std::optional<int> TargetRateFor(UINT id);
 
 private:

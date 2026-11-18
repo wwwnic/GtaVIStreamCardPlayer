@@ -83,7 +83,7 @@ MenuBar::MenuBar() {
     Append(view_, kMenuAlwaysOnTop, view.alwaysOnTop, false);
     Append(view_, kMenuGeneration, view.generation, false);
     targetRate_ = CreatePopupMenu();
-    const std::vector<MenuItem> targets = TargetRateItems(kTargetRateMonitor, 60);
+    const std::vector<MenuItem> targets = TargetRateItems(kTargetRateMonitor, kNoCustomTargetRate, 60);
     for (UINT i = 0; i < targets.size(); i++) Append(targetRate_, TargetRateId(i, targets.size()), targets[i], true);
     AddPopup(view_, targetRate_, L"&Target rate");
     Append(view_, kMenuSharpUpscale, view.sharpUpscale, false);
@@ -135,7 +135,7 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuSharpUpscale, view.sharpUpscale);
     Update(view_, kMenuVsync, view.vsync);
     Update(view_, kMenuFpsCounter, view.fpsCounter);
-    const std::vector<MenuItem> targets = TargetRateItems(state.settings.targetRate, state.monitorRefresh);
+    const std::vector<MenuItem> targets = TargetRateItems(state.settings.targetRate, state.settings.customTargetRate, state.monitorRefresh);
     for (size_t i = 0; i < targets.size(); i++) Update(targetRate_, TargetRateId(i, targets.size()), targets[i]);
 }
 
