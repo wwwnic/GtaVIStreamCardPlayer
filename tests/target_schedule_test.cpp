@@ -213,6 +213,31 @@ TEST_CASE("Target after a pause: the next Unique Frame is shown alone at once, t
     CHECK_FALSE(schedule.FrameFor(401 * kMs + k144).has_value());
 }
 
+TEST_CASE("Target on the x8 ladder at 30 fps: eighths a refresh or so apart, then the Unique Frame") {
+    TargetSchedule schedule(kSecond);
+    const int64_t interval = 40 * kMs;  // 25 fps: an eighth is 5 ms
+    TwoFrames(schedule, 0, interval, 7);
+    CHECK(schedule.Generated() == 7);
+    const int64_t ready = interval;
+    CHECK(schedule.FrameFor(ready + 1000) == 0);                // 1/8
+    CHECK(schedule.FrameFor(ready + 7 * kMs) == 1);             // 1.4 eighths -> 2/8
+    CHECK(schedule.FrameFor(ready + 14 * kMs) == 3);            // 2.8 -> 4/8 (3/8 passed between vsyncs)
+    CHECK(schedule.FrameFor(ready + 21 * kMs) == 4);            // 4.2 -> 5/8
+    CHECK(schedule.FrameFor(ready + 28 * kMs) == 6);            // 5.6 -> 7/8
+    CHECK(schedule.FrameFor(ready + 35 * kMs) == 7);            // 7 -> N
+    CHECK_FALSE(schedule.FrameFor(ready + 42 * kMs).has_value());
+    CHECK(schedule.TakeStats().ladder == 8);
+}
+
+TEST_CASE("Target: more Generated Frames than the x8 ladder count as x8; 4 to 6 as x4") {
+    TargetSchedule eight(kSecond);
+    TwoFrames(eight, 0, 40 * kMs, 9);
+    CHECK(eight.Generated() == 7);
+    TargetSchedule four(kSecond);
+    TwoFrames(four, 0, 40 * kMs, 5);
+    CHECK(four.Generated() == 3);
+}
+
 TEST_CASE("Target at 2x frames only: the middle, then the Unique Frame") {
     TargetSchedule schedule(kSecond);
     TwoFrames(schedule, 0, 40 * kMs, 1);

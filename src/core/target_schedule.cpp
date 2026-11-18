@@ -17,7 +17,7 @@ FrameSchedule::Arrival TargetSchedule::UniqueFrameArrived(int64_t arrivalTicks, 
 
 void TargetSchedule::Begin(int generated, int64_t refreshTicks, int64_t readyTicks) {
     const bool realOnly = !arrival_.mayGenerate || generated < 1 || arrival_.intervalTicks <= refreshTicks;
-    generated_ = realOnly ? 0 : generated >= 3 ? 3 : 1;
+    generated_ = realOnly ? 0 : generated >= 7 ? 7 : generated >= 3 ? 3 : 1;
     intervalTicks_ = arrival_.intervalTicks;
     readyTicks_ = readyTicks;
     begun_ = true;
