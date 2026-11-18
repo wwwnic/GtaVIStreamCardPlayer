@@ -159,7 +159,8 @@ std::string SettingsToText(const RememberedSettings& settings) {
                        : std::string("default")) +
          "\n";
     t += std::string("frame_rate=") + RateWord(v.frameRate) + "\n";
-    t += std::string("frameGeneration=") + GenerationName(v.generation) + "\n";
+    t += std::string("frameGeneration=") +
+         (v.generation == GenerationFactor::Target ? "target" : GenerationName(v.generation)) + "\n";
     t += std::string("sharpUpscale=") + Word(v.sharpUpscale) + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
@@ -210,6 +211,7 @@ RememberedSettings SettingsFromText(std::string_view text) {
     if (const auto* x = find("frameGeneration")) {
         if (*x == "2x") v.generation = GenerationFactor::Double;
         if (*x == "4x") v.generation = GenerationFactor::Quadruple;
+        if (*x == "target") v.generation = GenerationFactor::Target;
     }
     if (const auto* x = find("sharpUpscale")) v.sharpUpscale = BoolOf(*x).value_or(false);
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);

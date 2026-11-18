@@ -214,12 +214,49 @@ TEST_CASE("About names a card that is there but not playing (busy, failed)") {
     CHECK_FALSE(Contains(gp::AboutText(info), L"not playing"));
 }
 
-TEST_CASE("G cycles from off to 2x to 4x and back") {
+TEST_CASE("G cycles from off to 2x to 4x to Target and back") {
     const auto enabled = gp::NextGeneration(gp::GenerationFactor::Off);
     CHECK(enabled == gp::GenerationFactor::Double);
     const auto four = gp::NextGeneration(enabled);
     CHECK(four == gp::GenerationFactor::Quadruple);
-    CHECK(gp::NextGeneration(four) == gp::GenerationFactor::Off);
+    const auto target = gp::NextGeneration(four);
+    CHECK(target == gp::GenerationFactor::Target);
+    CHECK(gp::NextGeneration(target) == gp::GenerationFactor::Off);
+}
+
+TEST_CASE("the feedback line for Target names the rate in use") {
+    CHECK(gp::GenerationLine(gp::GenerationFactor::Target, 144) == "Frame generation Target (144)");
+    CHECK(gp::GenerationLine(gp::GenerationFactor::Target, 60) == "Frame generation Target (60)");
+    CHECK(gp::GenerationLine(gp::GenerationFactor::Quadruple, 144) == "Frame generation 4x");
+    CHECK(gp::GenerationLine(gp::GenerationFactor::Off, 144) == "Frame generation off");
+}
+
+TEST_CASE("in Target V-sync shows on and greyed out, whatever the user's own setting") {
+    gp::ViewerSettings settings;
+    settings.generation = gp::GenerationFactor::Target;
+    auto view = gp::ViewItems(settings, false);
+    CHECK(view.generation.label == L"Frame generation Target\tG");
+    CHECK(view.generation.checked);
+    CHECK(view.vsync.checked);
+    CHECK_FALSE(view.vsync.enabled);
+    CHECK_FALSE(settings.vsync);  // the user's own setting is untouched
+    settings.generation = gp::GenerationFactor::Off;
+    view = gp::ViewItems(settings, false);
+    CHECK_FALSE(view.vsync.checked);  // restored: the user's own
+    CHECK(view.vsync.enabled);
+    settings.generation = gp::GenerationFactor::Quadruple;
+    CHECK_FALSE(gp::ViewItems(settings, false).vsync.checked);  // 4x as before
+    CHECK(gp::HotkeysText().find(L"G\tFrame generation off / 2x / 4x / Target") != std::wstring::npos);
+}
+
+TEST_CASE("About names Target and its rate") {
+    gp::AboutInfo info;
+    info.presentation.runningFactor = 4;
+    info.presentation.targetRate = 144;
+    info.presentation.shownRate = 144;
+    const std::wstring text = gp::AboutText(info);
+    CHECK(Contains(text, L"Frame Generation: Target (144)"));
+    CHECK(Contains(text, L"Shown: 144 fps"));
 }
 
 TEST_CASE("View shows Frame generation, its key, and whether V-sync is available") {

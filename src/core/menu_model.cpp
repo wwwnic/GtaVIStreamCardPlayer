@@ -88,7 +88,9 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
         menu.generation.label = L"Frame generation (needs an AMD graphics card)\tG";
     if (availability == GenerationAvailability::Failed)
         menu.generation.label = L"Frame generation not available\tG";
-    menu.vsync = {L"V-sync", settings.vsync, !generating};
+    // Target forces V-sync on (ADR 0004); the user's own setting is kept for after.
+    const bool target = generating && settings.generation == GenerationFactor::Target;
+    menu.vsync = {L"V-sync", settings.vsync || target, !generating};
     menu.fpsCounter = {L"FPS counter\tF", settings.fpsCounter, true};
     return menu;
 }
@@ -100,7 +102,7 @@ std::wstring HotkeysText() {
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
            L"U\tSharp upscale\n"
-           L"G\tFrame generation off / 2x / 4x\n"
+           L"G\tFrame generation off / 2x / 4x / Target\n"
            L"F\tFPS counter (frames shown per second)\n"
            L"\nAlt opens the menu (windowed only).";
 }
@@ -130,7 +132,10 @@ std::wstring AboutText(const AboutInfo& info) {
     if (info.presentation.runningFactor > 1)
         text += L"\nShown: " + std::to_wstring(info.presentation.shownRate) + L" fps (all frames presented)";
     text += L"\nFrame Generation: ";
-    if (info.presentation.runningFactor > 1) {
+    if (info.presentation.runningFactor > 1 && info.presentation.targetRate > 0) {
+        text += L"Target (" + std::to_wstring(info.presentation.targetRate) + L")";
+        if (!info.generationReason.empty()) text += L" (4x frames unavailable: " + info.generationReason + L")";
+    } else if (info.presentation.runningFactor > 1) {
         text += std::to_wstring(info.presentation.runningFactor) + L"x";
         if (!info.generationReason.empty()) text += L" (4x unavailable: " + info.generationReason + L")";
     } else {

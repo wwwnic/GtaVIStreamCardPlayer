@@ -13,11 +13,15 @@
 namespace gp {
 
 enum class GenerationAvailability { Available, MissingRuntime, Failed };
-enum class GenerationFactor { Off, Double, Quadruple };
+// The Frame Generation choice. Double and Quadruple are Generation Factors;
+// Target follows a Target Rate instead (ADR 0004): one frame per refresh of
+// the monitor the window is on, picked from the frames 4x makes.
+enum class GenerationFactor { Off, Double, Quadruple, Target };
 constexpr GenerationFactor NextGeneration(GenerationFactor factor) {
     switch (factor) {
     case GenerationFactor::Off: return GenerationFactor::Double;
     case GenerationFactor::Double: return GenerationFactor::Quadruple;
+    case GenerationFactor::Quadruple: return GenerationFactor::Target;
     default: return GenerationFactor::Off;
     }
 }
@@ -26,8 +30,17 @@ constexpr const char* GenerationName(GenerationFactor factor) {
     switch (factor) {
     case GenerationFactor::Double: return "2x";
     case GenerationFactor::Quadruple: return "4x";
+    case GenerationFactor::Target: return "Target";
     default: return "off";
     }
+}
+
+// The confirmation line for G: "Frame generation 4x", "Frame generation
+// Target (144)" with the rate in use.
+inline std::string GenerationLine(GenerationFactor factor, int targetRate) {
+    std::string line = std::string("Frame generation ") + GenerationName(factor);
+    if (factor == GenerationFactor::Target) line += " (" + std::to_string(targetRate) + ")";
+    return line;
 }
 
 struct ViewerSettings {

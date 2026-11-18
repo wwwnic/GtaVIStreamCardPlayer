@@ -59,6 +59,12 @@ TEST_CASE("the defaults survive a save and a load too") {
         CHECK(SettingsToText(s).find("frameGeneration=4x\n") != std::string::npos);
         CHECK(SettingsFromText(SettingsToText(s)) == s);
     }
+    SUBCASE("Target frame generation") {
+        RememberedSettings s;
+        s.viewer.generation = gp::GenerationFactor::Target;
+        CHECK(SettingsToText(s).find("frameGeneration=target\n") != std::string::npos);
+        CHECK(SettingsFromText(SettingsToText(s)) == s);
+    }
     SUBCASE("each frame rate") {
         for (GameRateOverride rate : {GameRateOverride::Auto, GameRateOverride::Fps30, GameRateOverride::Fps60}) {
             RememberedSettings s;
@@ -298,6 +304,8 @@ TEST_CASE("at exit the file is written only if it differs") {
 TEST_CASE("remembered Frame generation defaults to off on missing or damaged values") {
     CHECK(SettingsFromText("version=1\nframeGeneration=bogus\n").viewer.generation == gp::GenerationFactor::Off);
     CHECK(SettingsFromText("").viewer.generation == gp::GenerationFactor::Off);
+    CHECK(SettingsFromText("version=1\nframeGeneration=target\n").viewer.generation == gp::GenerationFactor::Target);
+    CHECK(SettingsFromText("version=1\nframeGeneration=Target 144\n").viewer.generation == gp::GenerationFactor::Off);
 }
 
 TEST_CASE("Sharp upscale starts off and only valid choices survive a restart") {

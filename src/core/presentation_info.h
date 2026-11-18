@@ -15,6 +15,7 @@ struct PresentationInfo {
     uint32_t feedWidth = 0, feedHeight = 0;
     int shownWidth = 0, shownHeight = 0;
     int realRate = 0; // successful real endpoint presents, excluding generated frames/repaints
+    int targetRate = 0;  // Target running: the rate in use (the monitor's refresh); 0 otherwise
 };
 
 // Successful presents only, including repaint and Generated Frames. No refresh cap.
