@@ -41,6 +41,16 @@ TEST_CASE("vsync clock: two presents never claim the same vblank") {
     CHECK(fallback.NextVsync(5000 + 2 * kPeriod, kPeriod) == 5000 + 2 * kPeriod);
 }
 
+TEST_CASE("vsync clock: woken more often than the period, the display time never runs ahead of the clock") {
+    VsyncClock clock;
+    const int64_t nominal = 16949;  // told 59 Hz, woken at 144 Hz
+    for (int64_t now = 0; now < 200000; now += kPeriod) {
+        const int64_t next = clock.NextVsync(now, nominal);
+        CHECK(next >= now);
+        CHECK(next <= now + 2 * nominal);
+    }
+}
+
 TEST_CASE("vsync clock: missed vsyncs are vblanks that showed no new present") {
     VsyncClock clock;
     CHECK(clock.Sample(At(10, 100)) == 0u);
@@ -75,7 +85,9 @@ TEST_CASE("vsync clock: the period is measured over enough vblanks, else nominal
     stale.Sample({2, 1001, 1001 * real, 1001});
     stale.Sample({3, 1101, 1101 * real, 1101});
     CHECK(stale.Period(kPeriod) == real);
-    CHECK(clock.Period(16667) == 16667);  // far from the nominal (moved to a 60 Hz screen): not trusted
+    // Far from the nominal (a 59 Hz screen, but the swap chain still paced at
+    // 144 Hz): the measured one is what presents actually follow.
+    CHECK(clock.Period(16949) == real);
     clock.Reset();
     CHECK_FALSE(clock.HaveSample());
     CHECK(clock.Period(kPeriod) == kPeriod);

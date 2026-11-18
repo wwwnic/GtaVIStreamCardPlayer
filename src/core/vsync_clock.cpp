@@ -43,11 +43,7 @@ void VsyncClock::Reset() {
 }
 
 int64_t VsyncClock::Period(int64_t nominalPeriodTicks) const {
-    if (measuredPeriod_ <= 0) return nominalPeriodTicks;
-    const int64_t slack = nominalPeriodTicks / 4;
-    if (measuredPeriod_ < nominalPeriodTicks - slack || measuredPeriod_ > nominalPeriodTicks + slack)
-        return nominalPeriodTicks;
-    return measuredPeriod_;
+    return measuredPeriod_ > 0 ? measuredPeriod_ : nominalPeriodTicks;
 }
 
 int64_t VsyncClock::NextVsync(int64_t nowTicks, int64_t nominalPeriodTicks) {
@@ -58,7 +54,10 @@ int64_t VsyncClock::NextVsync(int64_t nowTicks, int64_t nominalPeriodTicks) {
         next = nowTicks >= base ? base + ((nowTicks - base) / period + 1) * period
                                 : base - ((base - nowTicks) / period) * period;
     }
-    if (lastGiven_ && next < *lastGiven_ + period / 2) next = *lastGiven_ + period;
+    // Woken faster than the period (it is wrong, or the swap chain paces
+    // otherwise): the clock wins, so the time never runs ahead of it.
+    if (lastGiven_ && next < *lastGiven_ + period / 2 && *lastGiven_ + period <= nowTicks + period + period / 2)
+        next = *lastGiven_ + period;
     lastGiven_ = next;
     return next;
 }

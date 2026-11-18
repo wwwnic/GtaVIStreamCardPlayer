@@ -37,11 +37,13 @@ public:
     // it, from the latest sample and the period. With no sample yet: nowTicks
     // (the Presenter was just woken by the swap chain, right after a vblank).
     // Never less than half a period after the time it gave before, so two
-    // presents never claim the same vblank.
+    // presents never claim the same vblank; but never more than one and a
+    // half periods ahead of nowTicks either.
     int64_t NextVsync(int64_t nowTicks, int64_t nominalPeriodTicks);
 
-    // The measured period when there is one within a quarter of the nominal
-    // one, else the nominal one.
+    // The measured period when there is one (the cadence presents actually
+    // follow, even where it is not the monitor's own: seen on a 59 Hz second
+    // monitor, still paced at the primary's 144), else the nominal one.
     int64_t Period(int64_t nominalPeriodTicks) const;
 
     bool HaveSample() const { return latest_.has_value(); }
