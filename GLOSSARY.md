@@ -34,7 +34,10 @@ Creating extra in-between frames so motion looks smoother than the Game Rate. Th
 An in-between frame made by Frame Generation. It was never sent by the Console.
 
 **Generation Factor**
-How many frames are shown for each Unique Frame while Frame Generation is on: 2x or 4x.
+How many frames are shown for each Unique Frame while Frame Generation is on: 2x or 4x. Not used with a Target Rate.
+
+**Target Rate**
+How many frames per second the Viewer aims to show while Frame Generation follows a target instead of a Generation Factor. Generated Frames fill whatever the Game Rate leaves, so the shown rate stays steady when the Game Rate drops.
 
 **Sharp Upscale**
 Showing the Feed's picture larger than it arrived while keeping edges crisp, instead of a plain smooth stretch.
