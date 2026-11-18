@@ -23,6 +23,7 @@ RememberedSettings Changed() {
     s.viewer.audio.audioDelayMs = 150;
     s.viewer.alwaysOnTop = true;
     s.viewer.generation = gp::GenerationFactor::Double;
+    s.viewer.targetRate = 120;
     s.viewer.vsync = true;
     s.viewer.fpsCounter = true;
     s.window = gp::SavedWindow{WindowRect{-1800, 120, -1800 + 1296, 120 + 759}, true};
@@ -65,6 +66,17 @@ TEST_CASE("the defaults survive a save and a load too") {
         CHECK(SettingsToText(s).find("frameGeneration=target\n") != std::string::npos);
         CHECK(SettingsFromText(SettingsToText(s)) == s);
     }
+    SUBCASE("each Target rate") {
+        for (int rate : {gp::kTargetRateMonitor, 120, 72, 60}) {
+            RememberedSettings s;
+            s.viewer.targetRate = rate;
+            CHECK(SettingsFromText(SettingsToText(s)) == s);
+        }
+        RememberedSettings s;
+        CHECK(SettingsToText(s).find("target_rate=monitor\n") != std::string::npos);
+        s.viewer.targetRate = 72;
+        CHECK(SettingsToText(s).find("target_rate=72\n") != std::string::npos);
+    }
     SUBCASE("each frame rate") {
         for (GameRateOverride rate : {GameRateOverride::Auto, GameRateOverride::Fps30, GameRateOverride::Fps60}) {
             RememberedSettings s;
@@ -77,6 +89,23 @@ TEST_CASE("the defaults survive a save and a load too") {
         s.window = gp::SavedWindow{WindowRect{10, 20, 1306, 779}, false};
         CHECK(SettingsFromText(SettingsToText(s)) == s);
     }
+}
+
+TEST_CASE("a missing or bad Target rate means Monitor") {
+    const auto load = [](const std::string& line) {
+        return SettingsFromText("version=1\n" + line).viewer.targetRate;
+    };
+    CHECK(load("") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=monitor\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=120\n") == 120);
+    CHECK(load("target_rate=fast\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=0\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=-72\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=1001\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=72.5\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=\n") == gp::kTargetRateMonitor);
+    CHECK(load("target_rate=1000\n") == 1000);  // any number 1..1000 (Q10)
+    CHECK(load("target_rate=1\n") == 1);
 }
 
 TEST_CASE("the text is readable key=value lines with a format version") {

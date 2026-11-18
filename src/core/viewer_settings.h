@@ -8,6 +8,7 @@
 
 #include "core/audio_controls.h"
 #include "core/capture_choice.h"
+#include "core/target_rate.h"
 #include "core/unique_frames.h"
 
 namespace gp {
@@ -45,6 +46,7 @@ inline std::string GenerationLine(GenerationFactor factor, int targetRate) {
 
 struct ViewerSettings {
     GenerationFactor generation = GenerationFactor::Off;
+    int targetRate = kTargetRateMonitor;   // Target only: Monitor, else 1..1000 per second
     std::wstring captureCard;              // friendly name; empty: automatic (the GC553 Pro, else the first)
     std::wstring captureCardId;            // its symbolic link, tried before the name; empty: not known yet
     std::optional<Resolution> resolution;  // empty: the default, 1080p60

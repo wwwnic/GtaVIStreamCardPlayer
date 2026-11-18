@@ -63,6 +63,18 @@ std::vector<MenuItem> FrameRateItems(GameRateOverride setting) {
     };
 }
 
+std::vector<MenuItem> TargetRateItems(int targetRate, int refresh) {
+    std::vector<MenuItem> items;
+    items.push_back({L"Monitor (" + std::to_wstring(refresh) + L")", targetRate == kTargetRateMonitor, true});
+    bool preset = targetRate == kTargetRateMonitor;
+    for (int rate : kTargetRatePresets) {
+        items.push_back({std::to_wstring(rate), targetRate == rate, true});
+        preset = preset || targetRate == rate;
+    }
+    items.push_back({L"Custom…", !preset, false});
+    return items;
+}
+
 AudioMenu AudioItems(const AudioSettings& audio) {
     AudioMenu menu;
     menu.mute = {L"Mute\tM", audio.muted, true};

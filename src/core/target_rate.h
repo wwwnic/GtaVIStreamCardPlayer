@@ -15,6 +15,8 @@ namespace gp {
 // The saved Target Rate: Monitor (follows the refresh of the monitor the
 // window is on), else frames per second.
 inline constexpr int kTargetRateMonitor = 0;
+inline constexpr int kTargetRateLowest = 1;  // a saved number is accepted from here (Q10)
+inline constexpr int kTargetRateHighest = 1000;
 
 // The rate in use: the smaller of the Target Rate and the refresh (Q16). The
 // user's number is kept as chosen.

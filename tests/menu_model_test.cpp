@@ -111,6 +111,36 @@ TEST_CASE("Frame rate offers Auto, 30 and 60 only, with the override checked") {
     CHECK(CheckedCount(items) == 1);
 }
 
+TEST_CASE("the Target rate menu: Monitor with its refresh, three presets, Custom greyed") {
+    std::vector<MenuItem> items = gp::TargetRateItems(gp::kTargetRateMonitor, 144);
+    REQUIRE(items.size() == 5);
+    CHECK(items[0].label == L"Monitor (144)");
+    CHECK(items[1].label == L"120");
+    CHECK(items[2].label == L"72");
+    CHECK(items[3].label == L"60");
+    CHECK(Contains(items[4].label, L"Custom"));
+    CHECK_FALSE(items[4].enabled);  // ticket 04
+    CHECK(items[0].checked);
+    CHECK(CheckedCount(items) == 1);
+    for (int i = 0; i < 4; i++) CHECK(items[i].enabled);
+
+    items = gp::TargetRateItems(72, 59);
+    CHECK(items[0].label == L"Monitor (59)");
+    CHECK(items[2].checked);
+    CHECK(CheckedCount(items) == 1);
+
+    items = gp::TargetRateItems(100, 144);  // a number from elsewhere: Custom
+    CHECK(items[4].checked);
+    CHECK(CheckedCount(items) == 1);
+}
+
+TEST_CASE("the Target rate menu ids follow the presets") {
+    CHECK(gp::kTargetRatePresets.size() == 3);
+    CHECK(gp::kTargetRatePresets[0] == 120);
+    CHECK(gp::kTargetRatePresets[1] == 72);
+    CHECK(gp::kTargetRatePresets[2] == 60);
+}
+
 TEST_CASE("the Audio menu shows mute, volume and the Audio Delay as they are now") {
     gp::AudioSettings audio;
     audio.volumePercent = 65;
