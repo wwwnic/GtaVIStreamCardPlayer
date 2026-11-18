@@ -111,26 +111,44 @@ TEST_CASE("Frame rate offers Auto, 30 and 60 only, with the override checked") {
     CHECK(CheckedCount(items) == 1);
 }
 
-TEST_CASE("the Target rate menu: Monitor with its refresh, three presets, Custom greyed") {
-    std::vector<MenuItem> items = gp::TargetRateItems(gp::kTargetRateMonitor, 144);
+TEST_CASE("the Target rate menu: Monitor with its refresh, three presets, Custom") {
+    std::vector<MenuItem> items = gp::TargetRateItems(gp::kTargetRateMonitor, gp::kNoCustomTargetRate, 144);
     REQUIRE(items.size() == 5);
     CHECK(items[0].label == L"Monitor (144)");
     CHECK(items[1].label == L"120");
     CHECK(items[2].label == L"72");
     CHECK(items[3].label == L"60");
-    CHECK(Contains(items[4].label, L"Custom"));
-    CHECK_FALSE(items[4].enabled);  // ticket 04
+    CHECK(items[4].label == L"Custom…");  // nothing typed yet
     CHECK(items[0].checked);
     CHECK(CheckedCount(items) == 1);
-    for (int i = 0; i < 4; i++) CHECK(items[i].enabled);
+    for (int i = 0; i < 5; i++) CHECK(items[i].enabled);
 
-    items = gp::TargetRateItems(72, 59);
+    items = gp::TargetRateItems(72, gp::kNoCustomTargetRate, 59);
     CHECK(items[0].label == L"Monitor (59)");
     CHECK(items[2].checked);
     CHECK(CheckedCount(items) == 1);
+}
 
-    items = gp::TargetRateItems(100, 144);  // a number from elsewhere: Custom
+TEST_CASE("the Target rate menu shows the custom number, kept under a preset") {
+    std::vector<MenuItem> items = gp::TargetRateItems(100, 100, 144);
+    CHECK(items[4].label == L"Custom (100)");
     CHECK(items[4].checked);
+    CHECK(CheckedCount(items) == 1);
+
+    items = gp::TargetRateItems(60, 100, 144);  // a preset picked later
+    CHECK(items[4].label == L"Custom (100)");
+    CHECK_FALSE(items[4].checked);
+    CHECK(items[3].checked);
+    CHECK(CheckedCount(items) == 1);
+
+    items = gp::TargetRateItems(gp::kTargetRateMonitor, 100, 144);
+    CHECK(items[4].label == L"Custom (100)");
+    CHECK(items[0].checked);
+    CHECK(CheckedCount(items) == 1);
+
+    items = gp::TargetRateItems(120, 120, 144);  // a preset typed in the box: the preset is checked
+    CHECK(items[1].checked);
+    CHECK(items[4].label == L"Custom (120)");
     CHECK(CheckedCount(items) == 1);
 }
 

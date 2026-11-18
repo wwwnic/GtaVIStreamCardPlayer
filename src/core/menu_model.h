@@ -39,10 +39,11 @@ std::vector<MenuItem> ResolutionItems(std::span<const OfferedResolution> offered
 std::vector<MenuItem> FrameRateItems(GameRateOverride setting);
 
 // View > Target rate (ticket 03): "Monitor (144)" with the refresh of the
-// monitor the window is on, the presets, then "Custom…" (greyed until ticket
-// 04). The saved choice is checked; a number that is no preset checks Custom.
-inline constexpr std::array<int, 3> kTargetRatePresets = {120, 72, 60};
-std::vector<MenuItem> TargetRateItems(int targetRate, int refresh);
+// monitor the window is on, the presets (kTargetRatePresets), then Custom
+// (ticket 04): "Custom…" until a number is typed, then "Custom (100)", kept
+// while a preset is chosen. The choice is checked; a number that is no preset
+// checks Custom.
+std::vector<MenuItem> TargetRateItems(int targetRate, int customRate, int refresh);
 
 struct AudioMenu {
     MenuItem mute;        // checked while muted

@@ -47,6 +47,7 @@ inline std::string GenerationLine(GenerationFactor factor, int targetRate) {
 struct ViewerSettings {
     GenerationFactor generation = GenerationFactor::Off;
     int targetRate = kTargetRateMonitor;   // Target only: Monitor, else 1..1000 per second
+    int customTargetRate = kNoCustomTargetRate;  // last typed in the Custom box, kept under a preset
     std::wstring captureCard;              // friendly name; empty: automatic (the GC553 Pro, else the first)
     std::wstring captureCardId;            // its symbolic link, tried before the name; empty: not known yet
     std::optional<Resolution> resolution;  // empty: the default, 1080p60

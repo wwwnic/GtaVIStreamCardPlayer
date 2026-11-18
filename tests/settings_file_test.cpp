@@ -24,6 +24,7 @@ RememberedSettings Changed() {
     s.viewer.alwaysOnTop = true;
     s.viewer.generation = gp::GenerationFactor::Double;
     s.viewer.targetRate = 120;
+    s.viewer.customTargetRate = 100;
     s.viewer.vsync = true;
     s.viewer.fpsCounter = true;
     s.window = gp::SavedWindow{WindowRect{-1800, 120, -1800 + 1296, 120 + 759}, true};
@@ -106,6 +107,48 @@ TEST_CASE("a missing or bad Target rate means Monitor") {
     CHECK(load("target_rate=\n") == gp::kTargetRateMonitor);
     CHECK(load("target_rate=1000\n") == 1000);  // any number 1..1000 (Q10)
     CHECK(load("target_rate=1\n") == 1);
+}
+
+TEST_CASE("the Custom Target rate is kept, also while a preset is chosen") {
+    RememberedSettings s;
+    s.viewer.targetRate = 100;
+    s.viewer.customTargetRate = 100;
+    CHECK(SettingsToText(s).find("target_rate=100\n") != std::string::npos);
+    CHECK(SettingsToText(s).find("target_rate_custom=100\n") != std::string::npos);
+    CHECK(SettingsFromText(SettingsToText(s)) == s);
+
+    s.viewer.targetRate = 60;  // a preset picked later: Custom (100) stays
+    CHECK(SettingsFromText(SettingsToText(s)) == s);
+    s.viewer.targetRate = gp::kTargetRateMonitor;
+    CHECK(SettingsFromText(SettingsToText(s)) == s);
+
+    RememberedSettings none;  // never typed
+    CHECK(SettingsToText(none).find("target_rate_custom=none\n") != std::string::npos);
+    CHECK(SettingsFromText(SettingsToText(none)).viewer.customTargetRate == gp::kNoCustomTargetRate);
+}
+
+TEST_CASE("a bad Custom Target rate is forgotten; a lone custom number becomes it") {
+    const auto load = [](const std::string& lines) { return SettingsFromText("version=1\n" + lines).viewer; };
+    CHECK(load("").customTargetRate == gp::kNoCustomTargetRate);
+    CHECK(load("target_rate_custom=0\n").customTargetRate == gp::kNoCustomTargetRate);
+    CHECK(load("target_rate_custom=1001\n").customTargetRate == gp::kNoCustomTargetRate);
+    CHECK(load("target_rate_custom=abc\n").customTargetRate == gp::kNoCustomTargetRate);
+    CHECK(load("target_rate_custom=1000\n").customTargetRate == 1000);
+    CHECK(load("target_rate_custom=1\n").customTargetRate == 1);
+
+    // A bad saved custom value in use means Monitor; the custom one is gone too.
+    const gp::ViewerSettings bad = load("target_rate=2000\ntarget_rate_custom=2000\n");
+    CHECK(bad.targetRate == gp::kTargetRateMonitor);
+    CHECK(bad.customTargetRate == gp::kNoCustomTargetRate);
+
+    // A number that is no preset is the custom one (a file from ticket 03, a hand edit).
+    CHECK(load("target_rate=100\n").customTargetRate == 100);
+    const gp::ViewerSettings odd = load("target_rate=100\ntarget_rate_custom=90\n");
+    CHECK(odd.targetRate == 100);
+    CHECK(odd.customTargetRate == 100);
+    // A preset leaves the custom one alone.
+    CHECK(load("target_rate=72\n").customTargetRate == gp::kNoCustomTargetRate);
+    CHECK(load("target_rate=72\ntarget_rate_custom=90\n").customTargetRate == 90);
 }
 
 TEST_CASE("the text is readable key=value lines with a format version") {

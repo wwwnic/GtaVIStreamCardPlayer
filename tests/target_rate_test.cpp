@@ -47,6 +47,37 @@ std::vector<int> Spans(const std::vector<PacedPresent>& presents) {
 
 }  // namespace
 
+TEST_CASE("the Custom box takes whole numbers 1 to 1000") {
+    using gp::TargetRateTyped;
+    CHECK(TargetRateTyped(L"100") == 100);
+    CHECK(TargetRateTyped(L"1") == 1);
+    CHECK(TargetRateTyped(L"1000") == 1000);
+    CHECK(TargetRateTyped(L" 72 ") == 72);  // spaces around are harmless
+    CHECK(TargetRateTyped(L"0072") == 72);
+    CHECK_FALSE(TargetRateTyped(L"0"));
+    CHECK_FALSE(TargetRateTyped(L"1001"));
+    CHECK_FALSE(TargetRateTyped(L"2000"));
+    CHECK_FALSE(TargetRateTyped(L"99999999999999999999"));
+    CHECK_FALSE(TargetRateTyped(L""));
+    CHECK_FALSE(TargetRateTyped(L"   "));
+    CHECK_FALSE(TargetRateTyped(L"abc"));
+    CHECK_FALSE(TargetRateTyped(L"10a"));
+    CHECK_FALSE(TargetRateTyped(L"-5"));
+    CHECK_FALSE(TargetRateTyped(L"+5"));
+    CHECK_FALSE(TargetRateTyped(L"72.5"));
+    CHECK_FALSE(TargetRateTyped(L"7 2"));
+    CHECK(std::wstring(gp::kTargetRateHint) == L"1 to 1000");
+}
+
+TEST_CASE("the Custom box opens with the custom number, else the rate in use") {
+    using gp::CustomBoxStart;
+    CHECK(CustomBoxStart(100, 100, 144) == 100);
+    CHECK(CustomBoxStart(60, 100, 144) == 100);  // kept under a preset
+    CHECK(CustomBoxStart(gp::kTargetRateMonitor, gp::kNoCustomTargetRate, 144) == 144);
+    CHECK(CustomBoxStart(72, gp::kNoCustomTargetRate, 144) == 72);
+    CHECK(CustomBoxStart(120, gp::kNoCustomTargetRate, 60) == 60);
+}
+
 TEST_CASE("rate in use: Monitor follows the refresh") {
     CHECK(RateInUse(gp::kTargetRateMonitor, 144) == 144);
     CHECK(RateInUse(gp::kTargetRateMonitor, 59) == 59);
