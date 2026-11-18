@@ -1,6 +1,6 @@
 # Frame Generation inside the Viewer, on the GPU, with AMD's frame rate conversion
 
-Replaces ADR 0002.
+Replaces ADR 0002. Two of its points (the Generation Factor is the user's alone; V-sync ignored while generating) are replaced for Target only by ADR 0004.
 
 ADR 0002 kept Frame Generation outside the Viewer because a video Feed has no motion vectors or depth and an in-house generator looked like a large effort with uncertain results. A throwaway prototype (branch `prototype/frame-generation`) changed that: AMD's AMF frame rate conversion component (FRC) makes in-between frames from pictures alone, runs on the Viewer's own Direct3D 11 device, and the user judged the result good at 2x and 4x. The Viewer therefore does Frame Generation itself, so that playing needs no second program. The same prototype showed a Sharp Upscale (FSR 1, two shader passes) is worth having for a 720p Feed.
 
