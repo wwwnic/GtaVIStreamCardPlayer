@@ -161,6 +161,8 @@ std::string SettingsToText(const RememberedSettings& settings) {
     t += std::string("frame_rate=") + RateWord(v.frameRate) + "\n";
     t += std::string("frameGeneration=") +
          (v.generation == GenerationFactor::Target ? "target" : GenerationName(v.generation)) + "\n";
+    t += "target_rate=" +
+         (v.targetRate == kTargetRateMonitor ? std::string("monitor") : std::to_string(v.targetRate)) + "\n";
     t += std::string("sharpUpscale=") + Word(v.sharpUpscale) + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
@@ -212,6 +214,10 @@ RememberedSettings SettingsFromText(std::string_view text) {
         if (*x == "2x") v.generation = GenerationFactor::Double;
         if (*x == "4x") v.generation = GenerationFactor::Quadruple;
         if (*x == "target") v.generation = GenerationFactor::Target;
+    }
+    if (const std::string* x = find("target_rate")) {  // "monitor", anything unusable too: Monitor
+        const std::optional<int> n = IntOf(*x);
+        if (n && *n >= kTargetRateLowest && *n <= kTargetRateHighest) v.targetRate = *n;
     }
     if (const auto* x = find("sharpUpscale")) v.sharpUpscale = BoolOf(*x).value_or(false);
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);
