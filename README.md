@@ -18,12 +18,13 @@ It does one thing: play the console on the PC screen. No recording, no streaming
 
 ## Requirements
 
-- Windows 11, a Direct3D 11 graphics card.
+- Windows 11 on an x64 PC with Direct3D 11 graphics.
 - A UVC capture card with uncompressed 1080p60 output. Built and tested with a GC553 Pro only; other cards may work but are untested.
+- On Windows 11 N, add the Media Feature Pack in Optional features and restart. [Microsoft installation instructions](https://support.microsoft.com/en-us/windows/experience/platform-variants/media-feature-pack-for-windows-n)
 
 ## Run
 
-Download `GamePlayer.exe` from the Releases page and start it. It is a single file, with nothing to install. Plug in the capture card, switch the console on.
+Download [GamePlayer.exe from the latest release](https://github.com/wwwnic/GtaVIStreamCardPlayer/releases/latest/download/GamePlayer.exe) and open it. The native x64 executable includes its C++ runtime. You do not need .NET or the Visual C++ Redistributable. Plug in the capture card, switch the console on.
 
 Only one program can use a capture card at a time: close OBS or the card's own software first.
 

@@ -25,7 +25,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" --verify-tag --draft --title "GamePlayer $env:GITHUB_REF_NAME" --generate-notes
+          gh release create "$env:GITHUB_REF_NAME" --verify-tag --draft --title "GamePlayer $env:GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           gh release upload "$env:GITHUB_REF_NAME" build/GamePlayer.exe
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
