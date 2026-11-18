@@ -21,7 +21,12 @@ jobs:
       - name: Run unit tests
         run: .\test.bat
 
-      - name: Publish the executable
+      - name: Create draft, upload tested executable, and publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$env:GITHUB_REF_NAME" build/GamePlayer.exe --verify-tag --title "GamePlayer $env:GITHUB_REF_NAME" --generate-notes
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" --verify-tag --draft --title "GamePlayer $env:GITHUB_REF_NAME" --generate-notes
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          gh release upload "$env:GITHUB_REF_NAME" build/GamePlayer.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          gh release edit "$env:GITHUB_REF_NAME" --draft=false
