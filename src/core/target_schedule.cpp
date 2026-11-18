@@ -11,18 +11,17 @@ FrameSchedule::Arrival TargetSchedule::UniqueFrameArrived(int64_t arrivalTicks, 
     if (begun_ && shown_ < generated_) stats_.notShown++;  // its own picture never reached the screen
     begun_ = false;
     shown_ = -1;
-    anchored_ = false;
     arrival_ = arrivals_.UniqueFrameArrived(arrivalTicks, sequence, width, height, feedGeneration);
     return arrival_;
 }
 
-void TargetSchedule::Begin(int generated, int64_t refreshTicks) {
+void TargetSchedule::Begin(int generated, int64_t refreshTicks, int64_t readyTicks) {
     const bool realOnly = !arrival_.mayGenerate || generated < 1 || arrival_.intervalTicks <= refreshTicks;
     generated_ = realOnly ? 0 : generated >= 3 ? 3 : 1;
     intervalTicks_ = arrival_.intervalTicks;
+    readyTicks_ = readyTicks;
     begun_ = true;
     shown_ = -1;
-    anchored_ = false;
     stats_.uniqueFrames++;
     stats_.ladder = generated_ + 1;
 }
@@ -33,7 +32,6 @@ void TargetSchedule::Forget() {
     begun_ = false;
     generated_ = 0;
     shown_ = -1;
-    anchored_ = false;
 }
 
 std::optional<int> TargetSchedule::FrameFor(int64_t vsyncTicks) {
@@ -43,15 +41,10 @@ std::optional<int> TargetSchedule::FrameFor(int64_t vsyncTicks) {
         return std::nullopt;
     }
     int frame = 0;
-    if (!anchored_) {
-        // The first vsync of this Unique Frame shows its first ladder frame
-        // and sets the time the others are counted from.
-        anchored_ = true;
-        firstVsync_ = vsyncTicks;
-    } else if (generated_ > 0 && intervalTicks_ > 0) {
-        // Steps of interval / (generated + 1) since the first, to the nearest
-        // (a half step or more rounds up).
-        const int64_t since = std::max<int64_t>(vsyncTicks - firstVsync_, 0);
+    if (generated_ > 0 && intervalTicks_ > 0) {
+        // Steps of interval / (generated + 1) since the ladder was ready, to
+        // the nearest (a half step or more rounds up). Before then: the first.
+        const int64_t since = std::max<int64_t>(vsyncTicks - readyTicks_, 0);
         const int64_t steps = (2 * since * (generated_ + 1) + intervalTicks_) / (2 * intervalTicks_);
         frame = static_cast<int>(std::min<int64_t>(steps, generated_));
     }

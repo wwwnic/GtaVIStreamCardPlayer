@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -19,6 +20,8 @@
 #include "core/latest_slot.h"
 #include "core/picture_fit.h"
 #include "core/shown_texts.h"
+#include "core/target_schedule.h"
+#include "core/vsync_clock.h"
 #include "platform/frame_generator.h"
 #include "platform/log.h"
 #include "platform/text_overlay.h"
@@ -241,10 +244,11 @@ public:
     void SetSharpUpscale(bool on) { sharpUpscale_ = on; }
     void SetVsync(bool on) { vsync_ = on; }
 
-    void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
+    void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target) {
         {
             std::lock_guard lock(generatorMutex_);
             wantedGenerator_ = std::move(generator);
+            wantedTarget_ = target && wantedGenerator_;
         }
         generatorChanged_ = true;
         if (wake_) SetEvent(wake_);
@@ -399,6 +403,9 @@ private:
         if (generator_) generator_->ReleaseDevice();
         SetRunningFactor(0);
         schedule_.Forget();
+        targetSchedule_.Forget();
+        vsyncClock_.Reset();  // the statistics belong to the swap chain going away
+        vsyncReady_ = false;
         overlay_.Detach();
         if (latencyWaitable_) CloseHandle(latencyWaitable_);
         latencyWaitable_ = nullptr;
@@ -453,6 +460,10 @@ private:
             }
 
             AdoptGenerator();
+            if (generator_ && target_) {  // Target: its own pass, nothing below runs
+                TargetPass();
+                continue;
+            }
 
             // Both, always: a repaint must not draw a text whose time is up.
             const bool repaint = repaint_.exchange(false);
@@ -536,6 +547,10 @@ private:
             WaitForSingleObject(wake_, RebuildWaitMs());
             return;
         }
+        if (generator_ && target_) {
+            WaitForVsync();
+            return;
+        }
         const DWORD textMs = NextTextEndMs();
         std::optional<int64_t> ticks;
         if (generator_) ticks = schedule_.TicksUntilWake(ScheduleNow(), drawWaiting_ || resizeWaiting_);
@@ -562,13 +577,23 @@ private:
     void AdoptGenerator() {
         if (!generatorChanged_.exchange(false)) return;
         std::shared_ptr<FrameGenerator> wanted;
+        bool wantedTarget = false;
         {
             std::lock_guard lock(generatorMutex_);
             wanted = wantedGenerator_;
+            wantedTarget = wantedTarget_;
         }
-        if (wanted == generator_) return;
+        if (wanted == generator_ && wantedTarget == target_) return;
         DropGenerator();
         generator_ = std::move(wanted);
+        if (generator_ && wantedTarget) {
+            target_ = true;
+            targetRate_ = 0;  // read on the first pass
+            targetSecond_ = GetTickCount64();
+            Log("Presenter: frame generator set: Target, one present per vsync (sync interval 1, no tearing), "
+                "the nearest frame each time");
+            return;
+        }
         Log("Presenter: frame generator %s", generator_ ? "set: each Unique Frame is a timed sequence, V-sync ignored"
                                                         : "removed: each Unique Frame is shown at once, alone");
     }
@@ -582,6 +607,17 @@ private:
         SetRunningFactor(0);
         schedule_.Forget();
         drawLead_ = 0;
+        if (target_) {
+            // The user's own V-sync applies again from the next present.
+            target_ = false;
+            if (targetSchedule_.Shown() < targetSchedule_.Generated()) drawWaiting_ = true;
+            targetSchedule_.Forget();
+            vsyncClock_.Reset();
+            vsyncReady_ = false;
+            targetRate_ = 0;
+            std::lock_guard lock(statsMutex_);
+            presentation_.targetRate = 0;
+        }
     }
 
     // A Unique Frame is in picture_: ask the schedule whether to generate,
@@ -616,6 +652,171 @@ private:
         if (presentation_.runningFactor == factor) return;
         presentation_.runningFactor = factor;
         presentedFrames_.Reset(GetTickCount64());
+    }
+
+    // ---- Target (ADR 0004): one present per vsync, the nearest frame ----
+
+    // Sleeps until the swap chain can take the next frame (the waitable
+    // object: once per vsync, max frame latency 1) or a wake-up (a frame, a
+    // text, stop). Only the first makes the next pass present.
+    void WaitForVsync() {
+        if (vsyncReady_) return;
+        const DWORD refreshMs = static_cast<DWORD>(std::max(1, 1000 / std::max(targetRate_, 1)));
+        if (occluded_ || !latencyWaitable_) {
+            // Minimised or covered: presents are not paced by the monitor
+            // then; at most one per refresh, by the clock.
+            if (WaitForSingleObject(wake_, refreshMs) == WAIT_TIMEOUT) vsyncReady_ = true;
+            return;
+        }
+        const HANDLE handles[2] = {latencyWaitable_, wake_};
+        const DWORD woke = WaitForMultipleObjects(2, handles, FALSE, 100);
+        if (woke == WAIT_OBJECT_0 || woke == WAIT_TIMEOUT) vsyncReady_ = true;
+    }
+
+    // The rate in use: the refresh of the monitor the window is on, read
+    // again once a second so it follows the window to another monitor.
+    void CheckTargetRate() {
+        const ULONGLONG now = GetTickCount64();
+        if (targetRate_ > 0 && now < rateCheckedAt_ + 1000) return;
+        rateCheckedAt_ = now;
+        const int rate = MonitorRefreshRate(window_);
+        if (rate == targetRate_) return;
+        Log("Target: rate in use %d (was %d), the refresh of the monitor the window is on", rate, targetRate_);
+        targetRate_ = rate;
+        refreshTicks_ = QpcFrequency() / rate;
+        vsyncClock_.Reset();
+        std::lock_guard lock(statsMutex_);
+        presentation_.targetRate = rate;
+        presentedFrames_.Reset(now);  // a new present rate: Shown measures again
+    }
+
+    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration) {
+        const FrameSchedule::Arrival arrival = targetSchedule_.UniqueFrameArrived(
+            frame.arrivalQpc, frame.sequence, frame.width, frame.height, feedGeneration);
+        FrameGenerator::Input input;
+        input.device = device_.Get();
+        input.context = context_.Get();
+        input.picture = picture_.Get();
+        input.pictureView = pictureView_.Get();
+        input.width = frame.width;
+        input.height = frame.height;
+        input.sequence = frame.sequence;
+        input.forgetEarlier = arrival.forgetEarlier;
+        input.mayGenerate = arrival.mayGenerate;
+        const int64_t began = QpcNow();
+        const int generated = generator_->Generate(input);
+        targetGenerateWorst_ = std::max(targetGenerateWorst_, QpcNow() - began);
+        if (generated == FrameGenerator::kCannotBeUsed) {
+            Log("Presenter: the frame generator cannot be used; each Unique Frame is shown at once, alone");
+            DropGenerator();
+            return;
+        }
+        SetRunningFactor(generator_->RunningFactor());
+        // FrameFor is asked with display times (a vblank after the present).
+        // A present made now is shown a refresh later at the earliest: that
+        // is when the first ladder frame is due on screen, as at 4x.
+        const int64_t period = vsyncClock_.Period(refreshTicks_);
+        targetSchedule_.Begin(generated, period, QpcNow() + period);
+    }
+
+    // One pass of the Target loop. A new Unique Frame is taken (and its
+    // Generated Frames made) whenever it arrives; a frame is presented only
+    // when the swap chain is ready for the next vsync, and then always: the
+    // nearest ladder frame, or the previous one again.
+    void TargetPass() {
+        repaint_ = false;   // every vsync presents: texts and resizes go with the next
+        EndExpiredTexts();
+        drawWaiting_ = false;
+        if (resized_.exchange(false)) resizeWaiting_ = true;
+        CheckTargetRate();
+        auto next = slot_.Take();
+        if (next && ConvertToPicture(*next->frame)) {
+            lastFrame_ = next->frame;
+            BeginTargetSequence(*next->frame, next->feedGeneration);
+            if (!generator_) {  // dropped: the ordinary path shows it
+                drawWaiting_ = true;
+                return;
+            }
+        }
+        if (!vsyncReady_) return;
+        vsyncReady_ = false;
+        targetVsyncs_++;
+        if (resizeWaiting_ && !ApplyResize()) return;
+        if (!backBufferView_) return;
+
+        const int64_t vsyncAt = vsyncClock_.NextVsync(QpcNow(), refreshTicks_);
+        const std::optional<int> pick = targetSchedule_.FrameFor(vsyncAt);
+        const int shown = targetSchedule_.Shown();
+        ID3D11ShaderResourceView* picture = pictureView_.Get();
+        if (shown >= 0 && shown < targetSchedule_.Generated()) {
+            if (ID3D11ShaderResourceView* generated = generator_->Generated(shown)) picture = generated;
+        }
+        const bool presented = ShowAndPresent(picture, true);
+        if (presented) {
+            targetPresents_++;
+            {
+                std::lock_guard lock(statsMutex_);
+                presentedFrames_.Presented(GetTickCount64());
+            }
+            generator_->NotePresented();
+            if (pick && *pick == targetSchedule_.Generated() && lastFrame_) {
+                const double latencyMs = QpcToMs(QpcNow() - lastFrame_->arrivalQpc);
+                std::lock_guard lock(statsMutex_);
+                realPresentedFrames_.Presented(GetTickCount64());
+                stats_.presented++;
+                latencySumMs_ += latencyMs;
+                if (latencyMs > stats_.worstLatencyMs) stats_.worstLatencyMs = latencyMs;
+            }
+            SampleVsyncs();
+        }
+        LogTargetSecond();
+    }
+
+    // The swap chain's frame statistics after a present: vblank times for
+    // VsyncClock, and vsyncs that kept the previous frame (missed).
+    void SampleVsyncs() {
+        DXGI_FRAME_STATISTICS statistics = {};
+        const HRESULT hr = swapChain_->GetFrameStatistics(&statistics);
+        if (FAILED(hr)) {
+            targetStatsFailures_++;
+            targetStatsError_ = hr;
+            return;
+        }
+        targetMissed_ += vsyncClock_.Sample({statistics.PresentCount, statistics.PresentRefreshCount,
+                                             statistics.SyncQPCTime.QuadPart, statistics.SyncRefreshCount});
+        targetStatsSamples_++;
+    }
+
+    void LogTargetSecond() {
+        const ULONGLONG now = GetTickCount64();
+        if (now < targetSecond_ + 1000) return;
+        targetSecond_ = now;
+        const TargetStats s = targetSchedule_.TakeStats();
+        const double refreshMs = QpcToMs(vsyncClock_.Period(refreshTicks_));
+        char source[96];
+        if (targetStatsSamples_ > 0) {
+            snprintf(source, sizeof source, "frame statistics (%u samples, %u failed)", targetStatsSamples_,
+                     targetStatsFailures_);
+        } else {
+            snprintf(source, sizeof source, "wake-up time (frame statistics failed hr=0x%08lX)",
+                     static_cast<unsigned long>(targetStatsError_));
+        }
+        char ladder[24];
+        if (s.ladder > 1) {
+            snprintf(ladder, sizeof ladder, "x%d", s.ladder);
+        } else {
+            snprintf(ladder, sizeof ladder, "real frames only");
+        }
+        Log("Target: rate %d, vsyncs %u, presents %u, Generated Frames shown %u, Unique Frames shown %u, repeats %u, "
+            "missed vsyncs %u, ladder %s; Unique Frames %u (not shown %u); refresh %.3f ms%s; generate worst %.2f ms; "
+            "occluded %s; vsync times from %s",
+            targetRate_, targetVsyncs_, targetPresents_, s.generatedShown, s.uniqueShown, s.repeats, targetMissed_,
+            ladder, s.uniqueFrames, s.notShown, refreshMs,
+            vsyncClock_.Period(refreshTicks_) != refreshTicks_ ? " measured" : " nominal",
+            QpcToMs(targetGenerateWorst_), occluded_ ? "yes" : "no", source);
+        targetVsyncs_ = targetPresents_ = targetMissed_ = 0;
+        targetStatsSamples_ = targetStatsFailures_ = 0;
+        targetGenerateWorst_ = 0;
     }
 
     // False: no back buffer to draw into, and Present, which reports a lost
@@ -810,9 +1011,10 @@ private:
             pictureWidth_, pictureHeight_, width, height);
     }
 
-    bool ShowAndPresent(ID3D11ShaderResourceView* shown) {
+    // paced (Target): WaitForVsync has waited already; sync interval 1, no tearing.
+    bool ShowAndPresent(ID3D11ShaderResourceView* shown, bool paced = false) {
         // Signalled when the swap chain can take a frame; keeps at most one in flight.
-        if (latencyWaitable_) WaitForSingleObjectEx(latencyWaitable_, 100, FALSE);
+        if (latencyWaitable_ && !paced) WaitForSingleObjectEx(latencyWaitable_, 100, FALSE);
 
         const float black[4] = {0, 0, 0, 1};
         ID3D11RenderTargetView* target = backBufferView_.Get();
@@ -862,10 +1064,12 @@ private:
         // display follows. On: wait for the refresh, no tearing flag. Ignored
         // with a frame generator: waiting for the monitor would break the
         // timing of its frames (ADR 0003).
-        const bool vsync = vsync_.load() && !generator_;
+        // Target always waits for the refresh (ADR 0004).
+        const bool vsync = paced || (vsync_.load() && !generator_);
         presentBegan_ = QpcNow();
         const HRESULT hr = swapChain_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
         presentTook_ = QpcNow() - presentBegan_;
+        if (paced) occluded_ = hr == DXGI_STATUS_OCCLUDED;
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
             Log("Presenter: device lost hr=0x%08lX (reason 0x%08lX); recreating", static_cast<unsigned long>(hr),
                 static_cast<unsigned long>(device_->GetDeviceRemovedReason()));
@@ -912,6 +1116,7 @@ private:
 
     std::mutex generatorMutex_;
     std::shared_ptr<FrameGenerator> wantedGenerator_;  // what SetFrameGenerator asked for
+    bool wantedTarget_ = false;                        // with it: Target
     std::atomic<bool> generatorChanged_{false};
     HANDLE timer_ = nullptr;  // waitable timer: the due time of the next timed frame
 
@@ -937,6 +1142,21 @@ private:
     int64_t drawLead_ = 0;        // QPC ticks: see ScheduleNow
     int64_t presentBegan_ = 0;    // QPC: when the latest Present was called
     int64_t presentTook_ = 0;     // QPC ticks: how long it took to return
+
+    // Target (ADR 0004). Without it nothing below changes what is presented.
+    bool target_ = false;
+    TargetSchedule targetSchedule_{QpcFrequency()};
+    VsyncClock vsyncClock_;
+    bool vsyncReady_ = false;     // the swap chain can take the frame for the next vsync
+    bool occluded_ = false;       // the last Target present said the window cannot be seen
+    int targetRate_ = 0;          // the rate in use; 0: not read yet
+    int64_t refreshTicks_ = 0;    // QPC ticks per refresh at that rate
+    ULONGLONG rateCheckedAt_ = 0;
+    ULONGLONG targetSecond_ = 0;  // GetTickCount64 of the last Target: line
+    uint32_t targetVsyncs_ = 0, targetPresents_ = 0, targetMissed_ = 0;
+    uint32_t targetStatsSamples_ = 0, targetStatsFailures_ = 0;
+    HRESULT targetStatsError_ = S_OK;
+    int64_t targetGenerateWorst_ = 0;
 
     ComPtr<ID3D11VertexShader> vertexShader_;
     ComPtr<ID3D11PixelShader> convertShader_, showShader_;
@@ -970,8 +1190,19 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 void Presenter::SetSharpUpscale(bool on) { impl_->SetSharpUpscale(on); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
-void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator) {
-    impl_->SetFrameGenerator(std::move(generator));
+void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target) {
+    impl_->SetFrameGenerator(std::move(generator), target);
+}
+
+int MonitorRefreshRate(HWND window) {
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof info;
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &info)) return 60;
+    DEVMODEW mode = {};
+    mode.dmSize = sizeof mode;
+    // 0 and 1 mean "the hardware's default".
+    if (!EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode) || mode.dmDisplayFrequency <= 1) return 60;
+    return static_cast<int>(mode.dmDisplayFrequency);
 }
 PresentationInfo Presenter::Presentation() { return impl_->Presentation(); }
 Presenter::Stats Presenter::TakeStats() { return impl_->TakeStats(); }

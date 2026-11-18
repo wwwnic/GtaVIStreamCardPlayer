@@ -52,6 +52,16 @@ TEST_CASE("vsync clock: missed vsyncs are vblanks that showed no new present") {
     CHECK(clock.Sample(At(4, 4)) == 1u);
 }
 
+TEST_CASE("vsync clock: a sample from before anything was shown, or an impossible jump, counts nothing") {
+    VsyncClock clock;
+    CHECK(clock.Sample({1, 0, 0, 0}) == 0u);  // nothing shown yet: no refresh count
+    CHECK_FALSE(clock.HaveSample());
+    CHECK(clock.Sample(At(2, 5000000)) == 0u);
+    CHECK(clock.Sample(At(3, 5000001)) == 0u);
+    CHECK(clock.Sample(At(4, 5000002 + VsyncClock::kMostVblanksBetween)) == 0u);  // not believable: start over
+    CHECK(clock.Sample(At(5, 5000004 + VsyncClock::kMostVblanksBetween)) == 1u);
+}
+
 TEST_CASE("vsync clock: the period is measured over enough vblanks, else nominal") {
     VsyncClock clock;
     const int64_t real = 6950;  // the monitor is a little slower than its nominal 144
@@ -60,6 +70,11 @@ TEST_CASE("vsync clock: the period is measured over enough vblanks, else nominal
     CHECK(clock.Period(kPeriod) == kPeriod);  // 10 vblanks: not yet
     clock.Sample({3, 1100, 1100 * real, 1100});
     CHECK(clock.Period(kPeriod) == real);
+    VsyncClock stale;  // a first sample whose time does not belong to its count is not the reference
+    stale.Sample({1, 1000, 1000 * real + 900, 1000});
+    stale.Sample({2, 1001, 1001 * real, 1001});
+    stale.Sample({3, 1101, 1101 * real, 1101});
+    CHECK(stale.Period(kPeriod) == real);
     CHECK(clock.Period(16667) == 16667);  // far from the nominal (moved to a 60 Hz screen): not trusted
     clock.Reset();
     CHECK_FALSE(clock.HaveSample());

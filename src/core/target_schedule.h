@@ -6,10 +6,13 @@
 // at 2x: the middle) and N itself, at positions 1/4, 2/4, 3/4, 1 (or 1/2, 1)
 // of the interval between the last two Unique Frames. The Presenter presents
 // once per vsync; for each it asks which ladder frame is nearest in time to
-// that vsync's display time. The first vsync of a Unique Frame shows its first
-// ladder frame, as 4x shows it at once; the others follow from there, one
-// interval per Unique Frame. Never backwards, and never a frame of an older
-// Unique Frame once a newer one has begun.
+// that vsync's display time. The times are those 4x would show them at: the
+// first ladder frame when the ladder is ready, the others one step apart
+// from then. Counted from the ready time (not from the first vsync), so with
+// evenly spaced Unique Frames the times run on without a seam from one
+// Unique Frame to the next and no step is skipped. Never backwards, and never
+// a frame of an older Unique Frame once a newer one has begun: the first
+// vsync of a ladder shows at least its first frame.
 //
 // Pure logic. Times are in the unit of Frame::arrivalQpc.
 #pragma once
@@ -48,8 +51,9 @@ public:
     // 3, 1 or 2 as 1, anything else as 0). None either when the arrival said
     // not to generate, or when a refresh (`refreshTicks`, the time between
     // vsyncs) is not shorter than the interval: the rate in use is not above
-    // the Game Rate, so real frames only.
-    void Begin(int generated, int64_t refreshTicks);
+    // the Game Rate, so real frames only. readyTicks: when the ladder was
+    // ready (its Generated Frames made), the time of its first frame.
+    void Begin(int generated, int64_t refreshTicks, int64_t readyTicks);
 
     // Forgets the earlier Unique Frame and ends the sequence (a device
     // rebuild, generation stopped).
@@ -74,8 +78,7 @@ private:
     int generated_ = 0;
     int shown_ = -1;
     int64_t intervalTicks_ = 0;
-    bool anchored_ = false;
-    int64_t firstVsync_ = 0;
+    int64_t readyTicks_ = 0;
     TargetStats stats_;
 };
 

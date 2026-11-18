@@ -134,12 +134,14 @@ void ApplyGeneration(App& app) {
     if (app.settings.generation == gp::GenerationFactor::Off) {
         app.presenter.SetFrameGenerator(nullptr);
     } else {
-        const bool four = app.settings.generation == gp::GenerationFactor::Quadruple;
+        // Target picks from the frames 4x makes (2x ones if the second FRC failed).
+        const bool target = app.settings.generation == gp::GenerationFactor::Target;
+        const bool four = app.settings.generation == gp::GenerationFactor::Quadruple || (target && app.fourAvailable);
         auto onFailure = [window = app.window, request, notices = app.generationNotices](gp::GenerationNotice notice) {
             notices->Publish(request, std::move(notice));
             PostMessageW(window, kGenerationFailed, 0, 0);
         };
-        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, std::move(onFailure)));
+        app.presenter.SetFrameGenerator(gp::MakeAmfGenerator(four, std::move(onFailure)), target);
     }
 }
 
@@ -157,13 +159,20 @@ void ToggleGeneration(App& app) {
                               ? "Frame generation needs an AMD graphics card" : "Frame generation not available");
         return;
     }
+    const bool wasTarget = app.settings.generation == gp::GenerationFactor::Target;
     auto next = gp::NextGeneration(app.settings.generation);
-    if (!app.fourAvailable && next == gp::GenerationFactor::Quadruple) next = gp::GenerationFactor::Off;
+    // Without the second FRC, 4x is skipped; Target still runs on 2x frames.
+    if (!app.fourAvailable && next == gp::GenerationFactor::Quadruple) next = gp::NextGeneration(next);
     if (app.fourAvailable) app.generationReason.clear();
     app.settings.generation = app.remembered.generation = next;
     ApplyGeneration(app);
-    const std::string line = std::string("Frame generation ") + gp::GenerationName(next);
+    const std::string line = gp::GenerationLine(next, gp::MonitorRefreshRate(app.window));
     gp::Log("Menu: %s", line.c_str());
+    if (next == gp::GenerationFactor::Target) {
+        gp::Log("Menu: V-sync on for Target (the setting stays %s)", app.settings.vsync ? "on" : "off");
+    } else if (wasTarget) {
+        gp::Log("Menu: V-sync back to the setting, %s", app.settings.vsync ? "on" : "off");
+    }
     app.feedback.Show(line);
 }
 
@@ -538,7 +547,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             const auto& notice = event.notice;
             // AMF reasons are our ASCII call names and numeric AMF_RESULT codes.
             app->generationReason.assign(notice.reason.begin(), notice.reason.end());
-            if (notice.outcome == gp::GenerationOutcome::FallbackToDouble) {
+            if (notice.outcome == gp::GenerationOutcome::FallbackToDouble &&
+                app->settings.generation == gp::GenerationFactor::Target) {
+                app->fourAvailable = false;  // stays in Target, picking from 2x frames
+                app->feedback.Show("Frame generation Target (2x frames only)");
+            } else if (notice.outcome == gp::GenerationOutcome::FallbackToDouble) {
                 app->fourAvailable = false;
                 app->settings.generation = gp::GenerationFactor::Double;
                 app->feedback.Show("Frame generation 2x");

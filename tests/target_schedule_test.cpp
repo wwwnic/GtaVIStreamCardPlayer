@@ -13,33 +13,34 @@ const int64_t kMs = 1000;
 const int64_t k144 = kSecond / 144;  // 6944 µs between vsyncs
 const int64_t k60 = kSecond / 60;
 
-// Unique Frame 1 at `first`, Unique Frame 2 `interval` later, its ladder of
-// `generated` begun: the schedule is ready for FrameFor.
+// Unique Frame 1 at `first`, Unique Frame 2 `interval` later and ready at
+// once, its ladder of `generated` begun: the schedule is ready for FrameFor.
 void TwoFrames(TargetSchedule& schedule, int64_t first, int64_t interval, int generated = 3,
                int64_t refresh = k144) {
     schedule.UniqueFrameArrived(first, 1, 1920, 1080);
-    schedule.Begin(generated, refresh);
+    schedule.Begin(generated, refresh, first);
     schedule.FrameFor(first + 1);
     schedule.UniqueFrameArrived(first + interval, 2, 1920, 1080);
-    schedule.Begin(generated, refresh);
+    schedule.Begin(generated, refresh, first + interval);
 }
 
-// Arrivals at the given times (each begun with a full ladder as it arrives),
-// vsyncs every `refresh` from 0 to `until`. For every vsync: which Unique
-// Frame was current (its index in `arrivals`) and what FrameFor answered (-1: none).
+// Arrivals at the given times (each ready `readyAfter` later, begun with a
+// full ladder), vsyncs every `refresh` from 0 to `until`. For every vsync:
+// which Unique Frame was current (its index in `arrivals`) and what FrameFor
+// answered (-1: none).
 struct Shown {
     int unique;
     int frame;
 };
 std::vector<Shown> Play(TargetSchedule& schedule, const std::vector<int64_t>& arrivals, int64_t refresh,
-                        int64_t until) {
+                        int64_t until, int64_t readyAfter = 3 * kMs) {
     std::vector<Shown> shown;
     size_t next = 0;
     int current = -1;
     for (int64_t vsync = 0; vsync <= until; vsync += refresh) {
-        while (next < arrivals.size() && arrivals[next] <= vsync) {
+        while (next < arrivals.size() && arrivals[next] + readyAfter <= vsync) {
             schedule.UniqueFrameArrived(arrivals[next], next + 1, 1920, 1080);
-            schedule.Begin(3, refresh);
+            schedule.Begin(3, refresh, arrivals[next] + readyAfter);
             current = static_cast<int>(next++);
         }
         const std::optional<int> frame = schedule.FrameFor(vsync);
@@ -64,7 +65,7 @@ TEST_CASE("Target: the first frame after a start is shown alone, then repeated")
     TargetSchedule schedule(kSecond);
     const auto arrival = schedule.UniqueFrameArrived(100 * kMs, 1, 1920, 1080);
     CHECK(arrival.forgetEarlier);
-    schedule.Begin(3, k144);
+    schedule.Begin(3, k144, 100 * kMs);
     CHECK(schedule.Generated() == 0);
     CHECK(schedule.FrameFor(101 * kMs) == 0);  // the Unique Frame itself, at the first vsync
     CHECK_FALSE(schedule.FrameFor(101 * kMs + k144).has_value());
@@ -80,13 +81,14 @@ TEST_CASE("Target at 30 fps on 144 Hz: first quarter, middle, last quarter, the 
     const int64_t interval = kSecond / 30;  // 33333: a quarter is 8333
     TwoFrames(schedule, 0, interval);
     CHECK(schedule.Generated() == 3);
-    const int64_t v0 = interval + 500;  // the first vsync after it is ready
-    CHECK(schedule.FrameFor(v0) == 0);              // at once: 1/4
-    CHECK(schedule.FrameFor(v0 + k144) == 1);       // 6.9 ms on: 0.83 quarters -> 2/4
-    CHECK(schedule.FrameFor(v0 + 2 * k144) == 2);   // 13.9 ms: 1.67 -> 3/4
-    CHECK_FALSE(schedule.FrameFor(v0 + 3 * k144).has_value());  // 20.8 ms: 2.4998, still nearest 3/4
-    CHECK(schedule.FrameFor(v0 + 4 * k144) == 3);   // 27.8 ms: 3.33 -> N
-    CHECK_FALSE(schedule.FrameFor(v0 + 5 * k144).has_value());  // nothing newer: repeat N
+    const int64_t ready = interval;
+    const int64_t v0 = ready + 500;  // the first vsync after it is ready
+    CHECK(schedule.FrameFor(v0) == 0);              // 1/4, as 4x shows it at once
+    CHECK(schedule.FrameFor(v0 + k144) == 1);       // 7.4 ms after ready: 0.89 quarters -> 2/4
+    CHECK(schedule.FrameFor(v0 + 2 * k144) == 2);   // 14.4 ms: 1.73 -> 3/4
+    CHECK(schedule.FrameFor(v0 + 3 * k144) == 3);   // 21.3 ms: 2.56 -> N
+    CHECK_FALSE(schedule.FrameFor(v0 + 4 * k144).has_value());  // nothing newer: repeat N
+    CHECK_FALSE(schedule.FrameFor(v0 + 5 * k144).has_value());
     const gp::TargetStats stats = schedule.TakeStats();
     CHECK(stats.generatedShown == 3u);
     CHECK(stats.uniqueShown == 2u);  // the first Unique Frame and N
@@ -94,29 +96,38 @@ TEST_CASE("Target at 30 fps on 144 Hz: first quarter, middle, last quarter, the 
     CHECK(stats.ladder == 4);
 }
 
-TEST_CASE("Target picks the nearest ladder frame: half a step or more rounds to the later one") {
+TEST_CASE("Target picks the nearest ladder frame, counted from when the ladder was ready") {
     TargetSchedule schedule(kSecond);
     const int64_t interval = 40 * kMs;  // 25 fps: a quarter is 10 ms
     TwoFrames(schedule, 0, interval);
-    const int64_t v0 = 41 * kMs;
-    CHECK(schedule.FrameFor(v0) == 0);
-    CHECK_FALSE(schedule.FrameFor(v0 + 4999).has_value());  // still nearest the first quarter
-    CHECK(schedule.FrameFor(v0 + 5000) == 1);              // exactly half way: the later
-    CHECK_FALSE(schedule.FrameFor(v0 + 14999).has_value());
-    CHECK(schedule.FrameFor(v0 + 15000) == 2);
-    CHECK(schedule.FrameFor(v0 + 25000) == 3);
-    CHECK_FALSE(schedule.FrameFor(v0 + 90000).has_value());  // never past the Unique Frame
+    const int64_t ready = interval;
+    CHECK(schedule.FrameFor(ready + 1000) == 0);
+    CHECK_FALSE(schedule.FrameFor(ready + 4999).has_value());  // still nearest the first quarter
+    CHECK(schedule.FrameFor(ready + 5000) == 1);              // exactly half way: the later
+    CHECK_FALSE(schedule.FrameFor(ready + 14999).has_value());
+    CHECK(schedule.FrameFor(ready + 15000) == 2);
+    CHECK(schedule.FrameFor(ready + 25000) == 3);
+    CHECK_FALSE(schedule.FrameFor(ready + 90000).has_value());  // never past the Unique Frame
+}
+
+TEST_CASE("Target: the first vsync of a ladder shows its nearest frame, at least the first one") {
+    TargetSchedule late(kSecond);
+    TwoFrames(late, 0, 40 * kMs);
+    CHECK(late.FrameFor(40 * kMs + 12 * kMs) == 1);  // a first vsync 12 ms after ready: the middle
+    TargetSchedule early(kSecond);
+    TwoFrames(early, 0, 40 * kMs);
+    CHECK(early.FrameFor(40 * kMs - 3 * kMs) == 0);  // before it was ready: still its own first frame
 }
 
 TEST_CASE("Target never goes backwards: an earlier vsync time or a missed vsync") {
     TargetSchedule schedule(kSecond);
     TwoFrames(schedule, 0, 40 * kMs);
-    const int64_t v0 = 41 * kMs;
-    CHECK(schedule.FrameFor(v0) == 0);
-    CHECK(schedule.FrameFor(v0 + 21 * kMs) == 2);  // a missed vsync: straight to 3/4
-    CHECK_FALSE(schedule.FrameFor(v0 + 6 * kMs).has_value());  // an earlier time: no going back
+    const int64_t ready = 40 * kMs;
+    CHECK(schedule.FrameFor(ready + 1000) == 0);
+    CHECK(schedule.FrameFor(ready + 22 * kMs) == 2);  // a missed vsync: straight to 3/4
+    CHECK_FALSE(schedule.FrameFor(ready + 6 * kMs).has_value());  // an earlier time: no going back
     CHECK(schedule.Shown() == 2);
-    CHECK(schedule.FrameFor(v0 + 30 * kMs) == 3);
+    CHECK(schedule.FrameFor(ready + 31 * kMs) == 3);
 }
 
 TEST_CASE("Target: a new Unique Frame mid-sequence starts its own ladder; the old one is not shown again") {
@@ -125,12 +136,35 @@ TEST_CASE("Target: a new Unique Frame mid-sequence starts its own ladder; the ol
     CHECK(schedule.FrameFor(41 * kMs) == 0);
     CHECK(schedule.FrameFor(51 * kMs) == 1);
     schedule.UniqueFrameArrived(60 * kMs, 3, 1920, 1080);  // early: 20 ms after the last
-    schedule.Begin(3, k144);
+    schedule.Begin(3, k144, 60 * kMs);
     CHECK(schedule.Shown() == -1);
     CHECK(schedule.FrameFor(62 * kMs) == 0);  // the new first quarter, not the old 3/4
     CHECK(schedule.FrameFor(67 * kMs) == 1);  // its quarters are 5 ms now
     const gp::TargetStats stats = schedule.TakeStats();
     CHECK(stats.notShown == 1u);  // Unique Frame 2 itself never reached the screen
+}
+
+TEST_CASE("Target at an even 30 fps on 144 Hz shows every Unique Frame itself and never skips a step") {
+    TargetSchedule schedule(kSecond);
+    std::vector<int64_t> arrivals;
+    for (int i = 0; i < 60; i++) arrivals.push_back(10 * kMs + i * kSecond / 30);
+    const std::vector<Shown> shown = Play(schedule, arrivals, k144, 2 * kSecond + 100 * kMs);
+    const gp::TargetStats stats = schedule.TakeStats();
+    CHECK(stats.notShown == 0u);
+    CHECK(stats.uniqueShown == arrivals.size());
+    // The middle and the last quarter are on screen longer than a refresh:
+    // each is always shown. The first quarter is shown when a vsync comes near it.
+    CHECK(stats.generatedShown >= 2 * (arrivals.size() - 1));
+    int unique = -2, last = -1;
+    for (const Shown& s : shown) {
+        if (s.unique != unique) {
+            unique = s.unique;
+            last = -1;
+        }
+        if (s.frame < 0) continue;
+        if (last >= 0) CHECK(s.frame == last + 1);  // after the first pick, one step at a time
+        last = s.frame;
+    }
 }
 
 TEST_CASE("Target with uneven 33 / 50 ms gaps (a 26 fps game on a 60 Hz signal): steady, never backwards") {
@@ -147,7 +181,7 @@ TEST_CASE("Target with uneven 33 / 50 ms gaps (a 26 fps game on a 60 Hz signal):
         if (s.unique != unique) {
             unique = s.unique;
             last = -1;
-            if (unique >= 0) CHECK(s.frame == 0);  // every Unique Frame opens with its first ladder frame
+            if (unique >= 0) CHECK(s.frame >= 0);  // every Unique Frame shows a frame of its own at once
         }
         if (s.frame >= 0) {
             CHECK(s.frame > last);  // never backwards, never twice
@@ -173,7 +207,7 @@ TEST_CASE("Target after a pause: the next Unique Frame is shown alone at once, t
     for (int64_t v = 100 * kMs; v < 400 * kMs; v += k144) CHECK_FALSE(schedule.FrameFor(v).has_value());
     const auto arrival = schedule.UniqueFrameArrived(400 * kMs, 3, 1920, 1080);
     CHECK(arrival.forgetEarlier);
-    schedule.Begin(3, k144);
+    schedule.Begin(3, k144, 400 * kMs);
     CHECK(schedule.Generated() == 0);
     CHECK(schedule.FrameFor(401 * kMs) == 0);
     CHECK_FALSE(schedule.FrameFor(401 * kMs + k144).has_value());
@@ -184,8 +218,8 @@ TEST_CASE("Target at 2x frames only: the middle, then the Unique Frame") {
     TwoFrames(schedule, 0, 40 * kMs, 1);
     CHECK(schedule.Generated() == 1);
     CHECK(schedule.FrameFor(41 * kMs) == 0);
-    CHECK_FALSE(schedule.FrameFor(41 * kMs + 9 * kMs).has_value());  // under half a step (10 ms)
-    CHECK(schedule.FrameFor(41 * kMs + 10 * kMs) == 1);
+    CHECK_FALSE(schedule.FrameFor(40 * kMs + 9999).has_value());  // under half a step (10 ms)
+    CHECK(schedule.FrameFor(40 * kMs + 10 * kMs) == 1);
     CHECK(schedule.TakeStats().ladder == 2);
 }
 

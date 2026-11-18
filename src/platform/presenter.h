@@ -93,6 +93,8 @@ public:
     // On: presents wait for the monitor's refresh (sync interval 1), no
     // tearing. From the next present. Any thread. Ignored while a frame
     // generator is set: waiting for the monitor would break the timing.
+    // Target (SetFrameGenerator) always waits for the refresh, and leaves
+    // this setting as it was.
     void SetVsync(bool on);
 
     // Use EASU and RCAS when the picture is enlarged. Any thread.
@@ -104,7 +106,11 @@ public:
     // Generated Frames, one step apart, and a text or a resize is drawn into
     // the next of those frames instead of being presented by itself. The
     // generator is used on the presenting thread only. Any thread.
-    void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator);
+    // target true (ADR 0004): no timed sequences; one present per vsync of
+    // the monitor the window is on (sync interval 1, no tearing, whatever
+    // SetVsync says), each showing the frame nearest in time
+    // (core/target_schedule.h). A `Target:` log line once a second.
+    void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target = false);
 
     // Counters since the previous call. With a frame generator, `presented`
     // counts Unique Frames (not their Generated Frames) and the latency runs
@@ -117,5 +123,9 @@ private:
     class Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+// The refresh rate of the monitor the window is mostly on (144 on the
+// user's); 60 when Windows does not say. Any thread.
+int MonitorRefreshRate(HWND window);
 
 }  // namespace gp

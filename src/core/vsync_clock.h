@@ -20,6 +20,9 @@ class VsyncClock {
 public:
     // A refresh period measured over at least this many vblanks replaces the nominal one.
     static constexpr uint64_t kMeasureOverRefreshes = 64;
+    // More vblanks than this between two samples (about a minute at 144 Hz,
+    // while presenting every vsync) is not believable: start over.
+    static constexpr uint64_t kMostVblanksBetween = 10000;
 
     // A new sample. Returns the vsyncs since the previous one that showed no
     // new present (missed: a present came too late, the previous frame stayed).
@@ -45,8 +48,9 @@ public:
 
 private:
     std::optional<VsyncSample> latest_;
-    std::optional<VsyncSample> reference_;  // the first since Reset, for measuring the period
+    std::optional<VsyncSample> reference_;  // the second since Reset, for measuring the period
     int64_t measuredPeriod_ = 0;
+    uint32_t validSamples_ = 0;  // since Reset or a restart
     std::optional<int64_t> lastGiven_;
 };
 
