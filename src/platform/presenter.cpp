@@ -760,6 +760,14 @@ private:
         const int64_t period = vsyncClock_.Period(refreshTicks_);
         targetSchedule_.Begin(realOnly ? 0 : generated, period, QpcNow() + period);
         targetNewFrame_ = true;
+        // With presents only for new frames the statistics count fewer
+        // vblanks than passed (seen: 7.27 ms measured on 144 Hz), so the
+        // period is measured again whenever presenting changes between the two.
+        const bool nowRealOnly = targetSchedule_.Generated() == 0;
+        if (nowRealOnly != targetRealOnly_) {
+            targetRealOnly_ = nowRealOnly;
+            vsyncClock_.Reset();
+        }
     }
 
     // One pass of the Target loop. A new Unique Frame is taken (and its
@@ -1240,6 +1248,7 @@ private:
     bool targetNewFrame_ = false;  // a Unique Frame is begun and its own picture not shown yet
     bool targetRedraw_ = false;    // a text or a resize waits for a present
     bool targetIdle_ = false;      // real frames only, nothing new: no present until a wake-up
+    bool targetRealOnly_ = true;   // the latest Unique Frame got real frames only
     uint32_t targetHeld_ = 0;      // vsyncs presents were held on purpose (sync interval over 1)
     ULONGLONG targetSecond_ = 0;  // GetTickCount64 of the last Target: line
     uint32_t targetVsyncs_ = 0, targetPresents_ = 0, targetMissed_ = 0;
