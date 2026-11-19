@@ -11,6 +11,26 @@ const size_t kTop = static_cast<size_t>(TextPlace::Top);
 const size_t kCentre = static_cast<size_t>(TextPlace::Centre);
 }  // namespace
 
+TEST_CASE("a notice and a feedback line at the top are both readable, whichever comes first") {
+    ShownTexts first;  // the feedback, then the notice
+    first.Show(TextPlace::Top, {L"Target rate 120", L""}, 1500, 10000);
+    CHECK(first.ShowNotice(TextPlace::Top, L"120 on a 144 Hz monitor", 4000, 10010));
+    CHECK(first.All()[kTop] == VideoAreaText{L"Target rate 120", L"120 on a 144 Hz monitor"});
+    ShownTexts second;  // the notice, then the feedback
+    second.ShowNotice(TextPlace::Top, L"120 on a 144 Hz monitor", 4000, 10000);
+    CHECK(second.All()[kTop] == VideoAreaText{L"120 on a 144 Hz monitor", L""});
+    CHECK(second.Show(TextPlace::Top, {L"Target rate 120", L""}, 1500, 10010));
+    CHECK(second.All()[kTop] == VideoAreaText{L"Target rate 120", L"120 on a 144 Hz monitor"});
+    // The feedback ends first: the notice stays alone until its own end.
+    CHECK(second.MsUntilNextEnd(10010) == 1500u);
+    CHECK(second.EndExpired(11510));
+    CHECK(second.All()[kTop] == VideoAreaText{L"120 on a 144 Hz monitor", L""});
+    CHECK(second.MsUntilNextEnd(11510) == 2490u);
+    CHECK(second.EndExpired(14000));
+    CHECK(second.All()[kTop].Empty());
+    CHECK_FALSE(second.MsUntilNextEnd(14000).has_value());
+}
+
 TEST_CASE("nothing shows and nothing is due before the first text") {
     ShownTexts texts;
     for (const VideoAreaText& text : texts.All()) CHECK(text.Empty());

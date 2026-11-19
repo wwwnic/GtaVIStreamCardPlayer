@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <optional>
 
 namespace gp {
 
@@ -23,11 +24,14 @@ public:
     explicit LadderDepth(int64_t ticksPerSecond);
 
     // A Unique Frame arrived (forgetEarlier: the arrival rules forgot the
-    // one before, a start, a pause, another size). refreshTicks: the time
-    // between vsyncs. Answers the depth for this Unique Frame: 4 or 8. A
-    // pause keeps the depth (x8 resumes at once) and measures the rate again;
-    // until about half a second is measured, the depth does not change.
-    int Arrived(int64_t arrivalTicks, bool forgetEarlier, int64_t refreshTicks);
+    // one before, a start, a pause, another size). presentSlotTicks: the
+    // time between presents at the rate in use. Answers the depth for this
+    // Unique Frame: 4 or 8. The rate is measured from the intervals of about
+    // the last second; the gap before a forgetting arrival is not one of
+    // them, so a short hitch changes nothing. A pause longer than that keeps
+    // the depth (x8 resumes at once) and measures the rate again; until
+    // about half a second is measured, the depth does not change.
+    int Arrived(int64_t arrivalTicks, bool forgetEarlier, int64_t presentSlotTicks);
 
     int Depth() const { return depth_; }
     // The recent Game Rate, 0 while not known.
@@ -37,8 +41,14 @@ public:
     void Reset();
 
 private:
+    struct Interval {
+        int64_t endTicks;  // the arrival that ended it
+        int64_t ticks;
+    };
     int64_t ticksPerSecond_;
-    std::deque<int64_t> arrivals_;  // the last second's
+    std::deque<Interval> intervals_;  // the last second's
+    int64_t measuredTicks_ = 0;       // their sum
+    std::optional<int64_t> last_;     // the latest arrival
     int depth_ = 4;
 };
 
@@ -62,20 +72,23 @@ constexpr int ReadyLadderFrames(int quartersReady, int eighthsReady) {
 }
 
 // When a ladder's first frame is due on screen (TargetSchedule::Begin's
-// readyTicks). readyTicks: when it could first be displayed (its Generated
-// Frames made, plus a refresh). The ladder's last frame, the Unique Frame
-// itself, must be shown before the next Unique Frame (about an interval after
-// this one's arrivalTicks) is taken and begins its own ladder. On the x8
-// ladder the Presenter takes a Unique Frame at the first vsync after it
-// arrived, just after that present, and its seven FRC calls make readyTicks
-// too late for that. So the start is at most a refresh and 1.25 steps after
-// arrival: the Unique Frame is then due at the latest at the vsync that
-// takes the next one (shown there, not a vsync earlier and then repeated).
-// Counted from the arrival, not the take (which falls on a vsync), so the
-// steps stay evenly spaced from one ladder to the next; a ladder's first
-// eighth may be passed over instead. Only for the x8 ladder (generated 7);
-// x4 and 2x keep readyTicks.
+// startTicks). readyTicks: when it could first be displayed (its Generated
+// Frames made, plus a refresh). presentSlotTicks: the time between presents
+// at the rate in use. The ladder's frames are shown by the presents made
+// until the next Unique Frame (about an interval after this one's
+// arrivalTicks) is taken; their display times span an interval from a slot
+// after the take. Counted from the arrival, not the take, so the steps stay
+// evenly spaced from one ladder to the next, the start is at most:
+//  - taken at once (x4, 2x): a slot and half a step after arrival, so those
+//    display times fall on the ladder's frames one each, centred, and no
+//    later than when 4x would show them (ready plus generation time is
+//    later than this at 60 fps: frames would be held back longer than the
+//    vsyncs that show them, and repeated);
+//  - taken just after the next present (the x8 ladder: its seven FRC calls
+//    then fit before the next vblank): a slot and 1.25 steps after arrival,
+//    so the Unique Frame is due at the latest at the present that takes the
+//    next one. A ladder's first eighth may be passed over instead.
 int64_t LadderStartTicks(int64_t arrivalTicks, int64_t readyTicks, int64_t intervalTicks, int generated,
-                         int64_t refreshTicks);
+                         int64_t presentSlotTicks, bool takenAfterPresent);
 
 }  // namespace gp

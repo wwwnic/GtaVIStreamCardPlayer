@@ -1,7 +1,10 @@
 #include "doctest.h"
 
+#include <algorithm>
 #include <vector>
 
+#include "core/ladder_depth.h"
+#include "core/target_rate.h"
 #include "core/target_schedule.h"
 
 using gp::TargetSchedule;
@@ -15,13 +18,12 @@ const int64_t k60 = kSecond / 60;
 
 // Unique Frame 1 at `first`, Unique Frame 2 `interval` later and ready at
 // once, its ladder of `generated` begun: the schedule is ready for FrameFor.
-void TwoFrames(TargetSchedule& schedule, int64_t first, int64_t interval, int generated = 3,
-               int64_t refresh = k144) {
+void TwoFrames(TargetSchedule& schedule, int64_t first, int64_t interval, int generated = 3, int rate = 144) {
     schedule.UniqueFrameArrived(first, 1, 1920, 1080);
-    schedule.Begin(generated, refresh, first);
+    schedule.Begin(generated, rate, first);
     schedule.FrameFor(first + 1);
     schedule.UniqueFrameArrived(first + interval, 2, 1920, 1080);
-    schedule.Begin(generated, refresh, first + interval);
+    schedule.Begin(generated, rate, first + interval);
 }
 
 // Arrivals at the given times (each ready `readyAfter` later, begun with a
@@ -40,7 +42,7 @@ std::vector<Shown> Play(TargetSchedule& schedule, const std::vector<int64_t>& ar
     for (int64_t vsync = 0; vsync <= until; vsync += refresh) {
         while (next < arrivals.size() && arrivals[next] + readyAfter <= vsync) {
             schedule.UniqueFrameArrived(arrivals[next], next + 1, 1920, 1080);
-            schedule.Begin(3, refresh, arrivals[next] + readyAfter);
+            schedule.Begin(3, static_cast<int>(kSecond / refresh), arrivals[next] + readyAfter);
             current = static_cast<int>(next++);
         }
         const std::optional<int> frame = schedule.FrameFor(vsync);
@@ -49,7 +51,91 @@ std::vector<Shown> Play(TargetSchedule& schedule, const std::vector<int64_t>& ar
     return shown;
 }
 
+// The Presenter on the x4 ladder (ticket 01): a Unique Frame is taken the
+// moment it arrives and generated for `generation` (a pass due meanwhile
+// waits for it); its first ladder frame is due a refresh after that. One
+// pass per present (PresentPacer at `rate` on 144 Hz), displayed at the
+// vblank its sync interval ends on; the next pass comes then. `jitter`: each
+// arrival up to that much early or late.
+struct Run {
+    gp::TargetStats stats;
+    double uniqueLatencyMs = 0;  // a Unique Frame's arrival to its own picture on screen, on average
+    uint32_t arrivals = 0;
+};
+Run PlayX4(int64_t interval, int rate, int64_t phase, int64_t jitter = 0, int64_t generation = 3 * kMs) {
+    TargetSchedule schedule(kSecond);
+    gp::PresentPacer pacer(rate, 144);
+    std::vector<int64_t> arrivals;
+    for (int i = 0; i < 600; i++) {
+        const int64_t wobble = jitter ? (static_cast<int64_t>(i) * 7919 % 2001 - 1000) * jitter / 1000 : 0;
+        arrivals.push_back(10 * kMs + phase + i * interval + wobble);
+    }
+    size_t next = 0;
+    int current = -1;
+    int64_t busyUntil = 0, latencySum = 0, latencyCount = 0;
+    for (int64_t vblank = 0; vblank < arrivals.back() + interval;) {
+        while (next < arrivals.size() && arrivals[next] <= std::max(vblank, busyUntil)) {
+            schedule.UniqueFrameArrived(arrivals[next], next + 1, 1920, 1080);
+            busyUntil = std::max(arrivals[next], busyUntil) + generation;
+            schedule.Begin(3, rate, gp::LadderStartTicks(arrivals[next], busyUntil + k144, interval, 3, kSecond / rate, false));
+            current = static_cast<int>(next++);
+        }
+        const gp::PacedPresent paced = pacer.Next();
+        const int64_t display = vblank + paced.syncInterval * k144;
+        if (paced.fresh) {
+            const std::optional<int> frame = schedule.FrameFor(display);
+            if (frame && *frame == schedule.Generated() && current >= 0) {
+                latencySum += display - arrivals[current];
+                latencyCount++;
+            }
+        }
+        vblank = display;
+    }
+    Run run;
+    run.stats = schedule.TakeStats();
+    run.uniqueLatencyMs = latencyCount ? static_cast<double>(latencySum) / latencyCount / kMs : 0;
+    run.arrivals = static_cast<uint32_t>(arrivals.size());
+    return run;
+}
+
 }  // namespace
+
+TEST_CASE("Target x4 at 60 fps on 144 Hz: every Unique Frame's own picture is shown") {
+    for (const int64_t phase : {0, 1000, 2500, 4000, 5500, 6900}) {
+        for (const int64_t jitter : {0, 300}) {
+            const Run run = PlayX4(k60, 144, phase, jitter);
+            MESSAGE("60 fps, phase ", phase, " jitter ", jitter, ": not shown ", run.stats.notShown, ", repeats ",
+                    run.stats.repeats, ", latency ", run.uniqueLatencyMs, " ms");
+            CHECK(run.stats.notShown == 0u);
+            CHECK(run.stats.uniqueShown >= run.arrivals - 1);  // the last one may be in progress
+            // Held back less than before (21.9 ms: a refresh after generating, as 4x).
+            CHECK(run.uniqueLatencyMs < 21.0);
+            // A vsync just before the next Unique Frame is due shows this one
+            // (arrival jitter) and, when the next is on time, again: at most
+            // one Unique Frame in five, at the worst phases.
+            CHECK(run.stats.repeats <= run.arrivals / 5 + 5);  // and a few after the last
+        }
+    }
+}
+
+TEST_CASE("Target x4 at 30 fps (no third FRC) on 144 Hz: every Unique Frame shown, timing as 4x") {
+    for (const int64_t phase : {0, 2500, 5500}) {
+        const Run run = PlayX4(kSecond / 30, 144, phase, 300);
+        CHECK(run.stats.notShown == 0u);
+        CHECK(run.uniqueLatencyMs < 37.0);
+    }
+}
+
+TEST_CASE("Target x4 at 60 fps with the rate in use at 120 and 72: every Unique Frame's own picture is shown") {
+    for (const int rate : {120, 72}) {
+        for (const int64_t phase : {0, 1000, 2500, 4000, 5500, 6900}) {
+            const Run run = PlayX4(k60, rate, phase, 300);
+            MESSAGE("60 fps at ", rate, ", phase ", phase, ": not shown ", run.stats.notShown, ", repeats ",
+                    run.stats.repeats, ", latency ", run.uniqueLatencyMs, " ms");
+            CHECK(run.stats.notShown == 0u);
+        }
+    }
+}
 
 TEST_CASE("Target: nothing to show before the first Unique Frame") {
     TargetSchedule schedule(kSecond);
@@ -65,7 +151,7 @@ TEST_CASE("Target: the first frame after a start is shown alone, then repeated")
     TargetSchedule schedule(kSecond);
     const auto arrival = schedule.UniqueFrameArrived(100 * kMs, 1, 1920, 1080);
     CHECK(arrival.forgetEarlier);
-    schedule.Begin(3, k144, 100 * kMs);
+    schedule.Begin(3, 144, 100 * kMs);
     CHECK(schedule.Generated() == 0);
     CHECK(schedule.FrameFor(101 * kMs) == 0);  // the Unique Frame itself, at the first vsync
     CHECK_FALSE(schedule.FrameFor(101 * kMs + k144).has_value());
@@ -136,7 +222,7 @@ TEST_CASE("Target: a new Unique Frame mid-sequence starts its own ladder; the ol
     CHECK(schedule.FrameFor(41 * kMs) == 0);
     CHECK(schedule.FrameFor(51 * kMs) == 1);
     schedule.UniqueFrameArrived(60 * kMs, 3, 1920, 1080);  // early: 20 ms after the last
-    schedule.Begin(3, k144, 60 * kMs);
+    schedule.Begin(3, 144, 60 * kMs);
     CHECK(schedule.Shown() == -1);
     CHECK(schedule.FrameFor(62 * kMs) == 0);  // the new first quarter, not the old 3/4
     CHECK(schedule.FrameFor(67 * kMs) == 1);  // its quarters are 5 ms now
@@ -207,7 +293,7 @@ TEST_CASE("Target after a pause: the next Unique Frame is shown alone at once, t
     for (int64_t v = 100 * kMs; v < 400 * kMs; v += k144) CHECK_FALSE(schedule.FrameFor(v).has_value());
     const auto arrival = schedule.UniqueFrameArrived(400 * kMs, 3, 1920, 1080);
     CHECK(arrival.forgetEarlier);
-    schedule.Begin(3, k144, 400 * kMs);
+    schedule.Begin(3, 144, 400 * kMs);
     CHECK(schedule.Generated() == 0);
     CHECK(schedule.FrameFor(401 * kMs) == 0);
     CHECK_FALSE(schedule.FrameFor(401 * kMs + k144).has_value());
@@ -250,12 +336,46 @@ TEST_CASE("Target at 2x frames only: the middle, then the Unique Frame") {
 
 TEST_CASE("Target with the rate in use not above the Game Rate: real frames only") {
     TargetSchedule schedule(kSecond);
-    TwoFrames(schedule, 0, k60, 3, k60);  // a 60 fps game on a 60 Hz monitor
+    TwoFrames(schedule, 0, k60, 3, 60);  // a 60 fps game on a 60 Hz monitor
     CHECK(schedule.Generated() == 0);
     CHECK(schedule.FrameFor(k60 + 100) == 0);
+    CHECK(schedule.RealOnly());
+    CHECK(schedule.TakeStats().realOnly);
     TargetSchedule faster(kSecond);
-    TwoFrames(faster, 0, k60, 3, k144);  // the same game at 144 Hz: the ladder is used
+    TwoFrames(faster, 0, k60, 3, 144);  // the same game at 144 Hz: the ladder is used
     CHECK(faster.Generated() == 3);
+    CHECK_FALSE(faster.RealOnly());
+}
+
+TEST_CASE("Target real frames only is RealFramesOnly's rule: a tenth of margin over the Game Rate") {
+    TargetSchedule sixtyFive(kSecond);
+    TwoFrames(sixtyFive, 0, k60, 3, 65);  // 65 at 60 fps: within the margin
+    CHECK(sixtyFive.RealOnly());
+    CHECK(sixtyFive.Generated() == 0);
+    TargetSchedule seventyTwo(kSecond);
+    TwoFrames(seventyTwo, 0, k60, 3, 72);
+    CHECK_FALSE(seventyTwo.RealOnly());
+    CHECK(seventyTwo.Generated() == 3);
+}
+
+TEST_CASE("Target after a short hitch: no ladder for the Unique Frame after it, but not real frames only") {
+    TargetSchedule schedule(kSecond);
+    TwoFrames(schedule, 0, k60);
+    schedule.TakeStats();
+    const auto arrival = schedule.UniqueFrameArrived(k60 + 250 * kMs, 3, 1920, 1080);  // over kMaxGapMs
+    CHECK(arrival.forgetEarlier);
+    schedule.Begin(3, 144, k60 + 250 * kMs);
+    CHECK(schedule.Generated() == 0);  // nothing to make it from
+    CHECK_FALSE(schedule.RealOnly());  // the Presenter keeps presenting every vsync
+    const gp::TargetStats stats = schedule.TakeStats();
+    CHECK(stats.ladder == 4);  // the ladder in use is still x4
+    CHECK_FALSE(stats.realOnly);
+    // In real frames only it stays so.
+    TargetSchedule real(kSecond);
+    TwoFrames(real, 0, k60, 3, 60);
+    real.UniqueFrameArrived(k60 + 250 * kMs, 3, 1920, 1080);
+    real.Begin(3, 60, k60 + 250 * kMs);
+    CHECK(real.RealOnly());
 }
 
 TEST_CASE("Target: an interval the arrival rules refuse gives real frames only, and Forget starts over") {

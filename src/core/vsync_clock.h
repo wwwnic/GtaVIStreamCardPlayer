@@ -4,6 +4,7 @@
 // Pure logic: the Presenter passes the samples and the clock in.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -30,6 +31,21 @@ public:
     // count nothing.
     uint32_t Sample(const VsyncSample& sample);
 
+    // A present was made, to be displayed at displayTicks (NextVsync's
+    // answer, plus the vsyncs a sync interval over 1 holds it back).
+    // presentCount: IDXGISwapChain::GetLastPresentCount after it.
+    void Presented(uint64_t presentCount, int64_t displayTicks);
+
+    // Missed vsyncs counted by the present the sample says was shown last:
+    // how many vblanks after the one it was made for it was first shown
+    // (judged once per present; 0 for one it was not told of). Unlike
+    // Sample's count, vblanks with no present at all are not counted: with
+    // real frames only the Presenter presents only for new frames. Judged by
+    // time (the sample's vblank, less the vblanks since the present was
+    // shown), so refresh counts that lag (seen on a second monitor) never
+    // make a present late.
+    uint32_t Late(const VsyncSample& sample, int64_t nominalPeriodTicks);
+
     // Forget every sample (another monitor, another swap chain).
     void Reset();
 
@@ -54,6 +70,12 @@ private:
     int64_t measuredPeriod_ = 0;
     uint32_t validSamples_ = 0;  // since Reset or a restart
     std::optional<int64_t> lastGiven_;
+    struct Asked {
+        uint64_t presentCount = 0;
+        int64_t displayTicks = 0;
+    };
+    std::array<Asked, 8> asked_{};  // the latest presents, by presentCount % 8
+    uint64_t judged_ = 0;           // the latest present Late judged
 };
 
 }  // namespace gp

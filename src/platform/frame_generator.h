@@ -46,6 +46,9 @@ public:
     virtual ~FrameGenerator() = default;
     virtual int RunningFactor() const { return 0; } // off until initialisation succeeds
     virtual void NotePresented() {}  // successful present while this generator is in use
+    // Target's x8 ladder can be asked for (Input::eighths): a third stage
+    // exists and has not failed. False with 2x frames only.
+    virtual bool MakesEighths() const { return false; }
 
     // Takes Unique Frame N and answers how many Generated Frames between N-1
     // and N are ready to show now: 0, 1 or 3 (7 on Target's x8 ladder). kCannotBeUsed: not at all (no

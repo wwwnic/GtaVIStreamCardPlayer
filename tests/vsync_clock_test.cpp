@@ -62,6 +62,40 @@ TEST_CASE("vsync clock: missed vsyncs are vblanks that showed no new present") {
     CHECK(clock.Sample(At(4, 4)) == 1u);
 }
 
+TEST_CASE("vsync clock: a late present is one first shown after the vblank it was made for") {
+    VsyncClock clock;
+    clock.Presented(10, 100 * kPeriod);
+    CHECK(clock.Late(At(10, 100), kPeriod) == 0u);  // on time
+    clock.Presented(11, 101 * kPeriod);
+    CHECK(clock.Late(At(11, 103), kPeriod) == 2u);  // two vblanks late: the frame before stayed two more
+    CHECK(clock.Late(At(11, 103), kPeriod) == 0u);  // judged once
+    CHECK(clock.Late(At(12, 104), kPeriod) == 0u);  // a present it was not told of
+}
+
+TEST_CASE("vsync clock: real frames only, vblanks with no present are not late ones") {
+    VsyncClock clock;
+    // A present for each new frame, about 2.4 vblanks apart (60 fps on 144 Hz).
+    uint64_t refresh = 100;
+    for (uint64_t present = 1; present <= 20; present++) {
+        refresh += present % 5 == 0 || present % 5 == 2 ? 3 : 2;
+        clock.Presented(present, static_cast<int64_t>(refresh) * kPeriod);
+        clock.Sample(At(present, refresh));
+        CHECK(clock.Late(At(present, refresh), kPeriod) == 0u);
+    }
+}
+
+TEST_CASE("vsync clock: refresh counts that lag or jump (a second monitor) are judged by time, never late early") {
+    VsyncClock clock;
+    clock.Presented(14, 112 * kPeriod);
+    // The latest vblank is 115, but the present's own count lags at 105: shown
+    // "before" it was asked for, so not late.
+    CHECK(clock.Late({14, 105, 115 * kPeriod, 115}, kPeriod) == 0u);
+    clock.Presented(15, 120 * kPeriod);
+    CHECK(clock.Late({15, 120, 400 * kPeriod, 400}, kPeriod) == 0u);  // the counts caught up in a jump
+    clock.Presented(16, 401 * kPeriod);
+    CHECK(clock.Late({16, 402, 402 * kPeriod + 100, 402}, kPeriod) == 1u);
+}
+
 TEST_CASE("vsync clock: a sample from before anything was shown, or an impossible jump, counts nothing") {
     VsyncClock clock;
     CHECK(clock.Sample({1, 0, 0, 0}) == 0u);  // nothing shown yet: no refresh count

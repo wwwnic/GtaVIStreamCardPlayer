@@ -234,6 +234,15 @@ public:
         if (changed) Repaint();
     }
 
+    void ShowNotice(TextPlace place, std::wstring notice, int durationMs) {
+        bool changed = false;
+        {
+            std::lock_guard lock(textMutex_);
+            changed = texts_.ShowNotice(place, std::move(notice), durationMs, GetTickCount64());
+        }
+        if (changed) Repaint();
+    }
+
     void ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
         std::lock_guard lock(textMutex_);
         texts_.ShowWithNextFrame(place, std::move(text));
@@ -604,8 +613,8 @@ private:
             targetRedraw_ = true;
             targetHeld_ = 0;
             targetSecond_ = GetTickCount64();
-            Log("Presenter: frame generator set: Target, one present per vsync (sync interval 1, no tearing), "
-                "the nearest frame each time");
+            Log("Presenter: frame generator set: Target, presents paced at the rate in use over the vsyncs (sync "
+                "interval 1 to 4, no tearing), the nearest frame each time and every Unique Frame itself");
             return;
         }
         Log("Presenter: frame generator %s", generator_ ? "set: each Unique Frame is a timed sequence, V-sync ignored"
@@ -725,14 +734,17 @@ private:
         pacer_ = PresentPacer(rate, refresh);
         if (const std::optional<std::string> notice = unevenNotice_.RateApplies(rate, refresh)) {
             Log("Target: notice \"%s\"", notice->c_str());
-            ShowText(TextPlace::Top, VideoAreaText{std::wstring(notice->begin(), notice->end()), L""}, kNoticeMs);
+            // Beside the feedback line ("Target rate 120"), not over it.
+            ShowNotice(TextPlace::Top, std::wstring(notice->begin(), notice->end()), kNoticeMs);
         }
         std::lock_guard lock(statsMutex_);
         presentation_.targetRate = rate;
         presentedFrames_.Reset(now);  // a new present rate: Shown measures again
     }
 
-    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration) {
+    // takenAfterPresent: it waited for the present of the vsync after it
+    // arrived (the x8 ladder), rather than taken at once.
+    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration, bool takenAfterPresent) {
         const FrameSchedule::Arrival arrival = targetSchedule_.UniqueFrameArrived(
             frame.arrivalQpc, frame.sequence, frame.width, frame.height, feedGeneration);
         FrameGenerator::Input input;
@@ -752,11 +764,15 @@ private:
         // x4 or x8 from the recent Game Rate and the rate in use
         // (core/ladder_depth.h). A change takes effect with this Unique
         // Frame; the generator restarts the third stage's history from it.
-        const int depth = ladderDepth_.Arrived(frame.arrivalQpc, arrival.forgetEarlier, slot);
+        // Without a third FRC (it failed, or 2x frames only) x8 is wanted but
+        // not asked for: the depth in use is what the generator can make.
+        ladderDepth_.Arrived(frame.arrivalQpc, arrival.forgetEarlier, slot);
+        const int depth = DepthInUse();
         input.eighths = depth == 8;
         if (depth != loggedDepth_) {
-            Log("Target: ladder depth x%d (Game Rate %.1f, %.2f presents per Unique Frame)", depth,
-                ladderDepth_.GameRate(), ladderDepth_.GameRate() > 0
+            Log("Target: ladder depth x%d%s (Game Rate %.1f, %.2f presents per Unique Frame)", depth,
+                ladderDepth_.Depth() == 8 && depth != 8 ? " (x8 wanted, no third FRC)" : "", ladderDepth_.GameRate(),
+                ladderDepth_.GameRate() > 0
                     ? static_cast<double>(QpcFrequency()) / ladderDepth_.GameRate() / static_cast<double>(slot) : 0.0);
             loggedDepth_ = depth;
         }
@@ -771,20 +787,21 @@ private:
         SetRunningFactor(generator_->RunningFactor());
         // FrameFor is asked with display times (a vblank after the present).
         // A present made now is shown a refresh later at the earliest: that
-        // is when the first ladder frame is due on screen, as at 4x. On the
-        // x8 ladder not so late that the Unique Frame itself misses its
-        // present (seven FRC calls take longer than an eighth; core/ladder_depth.h).
-        // Q17: not above the Game Rate, real frames only (generated all the
-        // same, so the generator's history stays whole).
-        const bool realOnly = RealFramesOnly(arrival.intervalTicks, targetRate_, QpcFrequency());
-        const int ladder = realOnly ? 0 : generated;
-        targetSchedule_.Begin(ladder, period,
-                              LadderStartTicks(frame.arrivalQpc, QpcNow() + period, arrival.intervalTicks, ladder, slot));
+        // is when the first ladder frame is due on screen, as at 4x, but no
+        // later than the presents that show the ladder can follow it
+        // (core/ladder_depth.h). The schedule also shows the Unique Frame
+        // itself at the last present before the next one is due, and decides
+        // Q17 (real frames only when the rate in use is not above the Game
+        // Rate; generated all the same, so the generator's history stays whole).
+        targetSchedule_.Begin(generated, targetRate_,
+                              LadderStartTicks(frame.arrivalQpc, QpcNow() + period, arrival.intervalTicks, generated,
+                                               slot, takenAfterPresent),
+                              takenAfterPresent ? slot : 0);
         targetNewFrame_ = true;
         // With presents only for new frames the statistics count fewer
         // vblanks than passed (seen: 7.27 ms measured on 144 Hz), so the
         // period is measured again whenever presenting changes between the two.
-        const bool nowRealOnly = targetSchedule_.Generated() == 0;
+        const bool nowRealOnly = targetSchedule_.RealOnly();
         if (nowRealOnly != targetRealOnly_) {
             targetRealOnly_ = nowRealOnly;
             vsyncClock_.Reset();
@@ -813,14 +830,14 @@ private:
         // (a missed vsync). x4 takes it at once, as before, and so does a
         // pass on real frames only (after a pause): it presents only for a
         // new frame, so it must not wait for one.
-        const bool afterPresent = ladderDepth_.Depth() == 8 && targetSchedule_.Generated() > 0;
-        if (!afterPresent && !TakeTargetFrame()) return;
+        const bool afterPresent = DepthInUse() == 8 && targetSchedule_.Generated() > 0;
+        if (!afterPresent && !TakeTargetFrame(false)) return;
         if (!vsyncReady_) return;
         // Generating: presents paced at the rate in use, each spanning one or
         // more vsyncs (PresentPacer). Real frames only: a present for each
         // new Unique Frame (or text, resize) at the next vsync, none between,
         // so no real frame is overtaken by the pacing (Q17).
-        const bool realOnly = targetSchedule_.Generated() == 0;
+        const bool realOnly = targetSchedule_.RealOnly();
         PacedPresent paced;
         if (realOnly) {
             targetIdle_ = !targetNewFrame_ && !targetRedraw_;
@@ -867,19 +884,27 @@ private:
                 latencySumMs_ += latencyMs;
                 if (latencyMs > stats_.worstLatencyMs) stats_.worstLatencyMs = latencyMs;
             }
+            UINT presentCount = 0;
+            if (SUCCEEDED(swapChain_->GetLastPresentCount(&presentCount))) vsyncClock_.Presented(presentCount, vsyncAt);
             SampleVsyncs();
         }
         LogTargetSecond();
-        if (afterPresent) TakeTargetFrame();
+        if (afterPresent) TakeTargetFrame(true);
+    }
+
+    // The ladder depth asked of the generator: x8 only when LadderDepth
+    // wants it and the generator can make eighths.
+    int DepthInUse() const {
+        return ladderDepth_.Depth() == 8 && generator_ && generator_->MakesEighths() ? 8 : 4;
     }
 
     // A new Unique Frame, if one waits: converted, generated, its ladder
     // begun. False: the generator was dropped (the ordinary path shows it).
-    bool TakeTargetFrame() {
+    bool TakeTargetFrame(bool afterPresent) {
         auto next = slot_.Take();
         if (!next || !ConvertToPicture(*next->frame)) return true;
         lastFrame_ = next->frame;
-        BeginTargetSequence(*next->frame, next->feedGeneration);
+        BeginTargetSequence(*next->frame, next->feedGeneration, afterPresent);
         if (generator_) return true;
         drawWaiting_ = true;
         return false;
@@ -895,8 +920,10 @@ private:
             targetStatsError_ = hr;
             return;
         }
-        targetMissed_ += vsyncClock_.Sample({statistics.PresentCount, statistics.PresentRefreshCount,
-                                             statistics.SyncQPCTime.QuadPart, statistics.SyncRefreshCount});
+        const VsyncSample sample{statistics.PresentCount, statistics.PresentRefreshCount,
+                                 statistics.SyncQPCTime.QuadPart, statistics.SyncRefreshCount};
+        targetLate_ += vsyncClock_.Late(sample, refreshTicks_);
+        targetMissed_ += vsyncClock_.Sample(sample);
         targetStatsSamples_++;
     }
 
@@ -910,28 +937,34 @@ private:
         if (targetStatsSamples_ > 0) {
             snprintf(source, sizeof source, "frame statistics (%u samples, %u failed)", targetStatsSamples_,
                      targetStatsFailures_);
-        } else {
+        } else if (targetStatsFailures_ > 0) {
             snprintf(source, sizeof source, "wake-up time (frame statistics failed hr=0x%08lX)",
                      static_cast<unsigned long>(targetStatsError_));
+        } else {
+            snprintf(source, sizeof source, "wake-up time (no frame statistics this second)");
         }
         char ladder[24];
-        if (s.ladder > 1) {
+        if (s.realOnly) {
+            snprintf(ladder, sizeof ladder, "real frames only");
+        } else if (s.ladder > 1) {
             snprintf(ladder, sizeof ladder, "x%d", s.ladder);
         } else {
-            snprintf(ladder, sizeof ladder, "real frames only");
+            snprintf(ladder, sizeof ladder, "none");
         }
-        // Vblanks with no new present, less those a sync interval over 1 held
-        // on purpose. Real frames only: every vblank without a new frame.
-        const uint32_t missed = targetMissed_ > targetHeld_ ? targetMissed_ - targetHeld_ : 0;
+        // Generating: vblanks with no new present, less those a sync interval
+        // over 1 held on purpose. Real frames only (no present between new
+        // frames): presents shown after the vblank they were made for.
+        const bool realOnly = targetSchedule_.RealOnly();
+        const uint32_t missed = realOnly ? targetLate_ : targetMissed_ > targetHeld_ ? targetMissed_ - targetHeld_ : 0;
         Log("Target: rate %d of %d Hz, vsyncs %u, presents %u (held %u), Generated Frames shown %u, Unique Frames "
             "shown %u, repeats %u, missed vsyncs %u%s, ladder %s (depth x%d, Game Rate %.1f); Unique Frames %u (not "
             "shown %u); refresh %.3f ms%s; generate worst %.2f ms; occluded %s; vsync times from %s",
             targetRate_, targetRefresh_, targetVsyncs_, targetPresents_, targetHeld_, s.generatedShown, s.uniqueShown,
-            s.repeats, missed, s.ladder > 1 ? "" : " (with vblanks that had no new frame)", ladder, ladderDepth_.Depth(),
-            ladderDepth_.GameRate(), s.uniqueFrames, s.notShown, refreshMs,
+            s.repeats, missed, realOnly ? " (late presents)" : "", ladder, DepthInUse(), ladderDepth_.GameRate(),
+            s.uniqueFrames, s.notShown, refreshMs,
             vsyncClock_.Period(refreshTicks_) != refreshTicks_ ? " measured" : " nominal",
             QpcToMs(targetGenerateWorst_), occluded_ ? "yes" : "no", source);
-        targetVsyncs_ = targetPresents_ = targetMissed_ = targetHeld_ = 0;
+        targetVsyncs_ = targetPresents_ = targetMissed_ = targetHeld_ = targetLate_ = 0;
         targetStatsSamples_ = targetStatsFailures_ = 0;
         targetGenerateWorst_ = 0;
     }
@@ -1287,6 +1320,7 @@ private:
     uint32_t targetHeld_ = 0;      // vsyncs presents were held on purpose (sync interval over 1)
     ULONGLONG targetSecond_ = 0;  // GetTickCount64 of the last Target: line
     uint32_t targetVsyncs_ = 0, targetPresents_ = 0, targetMissed_ = 0;
+    uint32_t targetLate_ = 0;      // presents shown after their vblank (VsyncClock::Late)
     uint32_t targetStatsSamples_ = 0, targetStatsFailures_ = 0;
     HRESULT targetStatsError_ = S_OK;
     int64_t targetGenerateWorst_ = 0;

@@ -28,19 +28,28 @@ public:
     // next frame). It stays until replaced.
     void ShowWithNextFrame(TextPlace place, VideoAreaText text);
 
-    // Milliseconds until the next brief text ends (0: already due); none when
-    // no brief text shows.
+    // A notice at `place` for `durationMs` beside its text, not replacing it
+    // nor replaced by it (Target's uneven-rate notice and the feedback line
+    // come together): the smaller second line under the text's headline, or
+    // the headline itself while no text shows there. True: draw again.
+    bool ShowNotice(TextPlace place, std::wstring notice, int durationMs, uint64_t nowMs);
+
+    // Milliseconds until the next brief text or notice ends (0: already
+    // due); none when none shows.
     std::optional<uint64_t> MsUntilNextEnd(uint64_t nowMs) const;
 
-    // Clears the brief texts whose time is up. True when any was cleared (the
-    // picture must be drawn again).
+    // Clears the brief texts and notices whose time is up. True when any was
+    // cleared (the picture must be drawn again).
     bool EndExpired(uint64_t nowMs);
 
-    const Texts& All() const { return texts_; }
+    // What each place shows: its text with its notice.
+    Texts All() const;
 
 private:
     Texts texts_;
     std::array<uint64_t, kPlaces> endsAt_ = {};  // 0: stays until replaced
+    std::array<std::wstring, kPlaces> notices_;
+    std::array<uint64_t, kPlaces> noticeEndsAt_ = {};
 };
 
 }  // namespace gp

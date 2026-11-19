@@ -112,10 +112,12 @@ public:
     // Generated Frames, one step apart, and a text or a resize is drawn into
     // the next of those frames instead of being presented by itself. The
     // generator is used on the presenting thread only. Any thread.
-    // target true (ADR 0004): no timed sequences; one present per vsync of
-    // the monitor the window is on (sync interval 1, no tearing, whatever
-    // SetVsync says), each showing the frame nearest in time
-    // (core/target_schedule.h). A `Target:` log line once a second.
+    // target true (ADR 0004): no timed sequences; presents paced at the rate
+    // in use (SetTargetRate) over the vsyncs of the monitor the window is on
+    // (sync interval 1 to 4, PresentPacer; no tearing, whatever SetVsync
+    // says), each showing the frame nearest in time and every Unique Frame
+    // itself (core/target_schedule.h); real frames only when the rate in use
+    // is not above the Game Rate. A `Target:` log line once a second.
     void SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target = false);
 
     // Counters since the previous call. With a frame generator, `presented`

@@ -317,6 +317,7 @@ public:
         return session_->middle.view.Get();
     }
     int RunningFactor() const override { return announced_ ? (four_ ? 4 : 2) : 0; }
+    bool MakesEighths() const override { return eighths_; }
     void ReleaseDevice() override { session_.reset(); warmup_.Reset(); announced_ = false; }
 
     void NotePresented() override {

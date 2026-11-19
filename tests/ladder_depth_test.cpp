@@ -96,6 +96,24 @@ TEST_CASE("Ladder depth after a pause keeps its depth and measures again") {
     CHECK(Feed(depth, 60, 1.0, at) == 4);  // the gap itself is not counted as a slow rate
 }
 
+TEST_CASE("Ladder depth through a short hitch: the Game Rate stays known, the depth stays") {
+    LadderDepth depth(kSecond);
+    int64_t at = 0;
+    CHECK(Feed(depth, 60, 2.0, at) == 4);
+    at += 250000;  // a 250 ms hitch: the arrival rules forget the earlier frame
+    CHECK(depth.Arrived(at, true, k144) == 4);
+    CHECK(depth.GameRate() == doctest::Approx(60).epsilon(0.02));  // the gap is not an interval
+    at += kSecond / 60;
+    CHECK(depth.Arrived(at, false, k144) == 4);
+    CHECK(depth.GameRate() == doctest::Approx(60).epsilon(0.02));
+    LadderDepth thirty(kSecond);
+    at = 0;
+    CHECK(Feed(thirty, 30, 2.0, at) == 8);
+    at += 250000;
+    CHECK(thirty.Arrived(at, true, k144) == 8);
+    CHECK(thirty.GameRate() == doctest::Approx(30).epsilon(0.02));
+}
+
 TEST_CASE("x8 all or fall back: a missing eighth gives the x4 ladder, never a partial x8") {
     CHECK(gp::ReadyLadderFrames(3, 4) == 7);
     CHECK(gp::ReadyLadderFrames(3, 3) == 3);
@@ -118,15 +136,21 @@ TEST_CASE("Ladder start: no later than a refresh and 1.25 steps after the Unique
     const int64_t interval = kSecond / 30;  // an eighth is 4167, a quarter 8333
     // x8 made in 5.4 ms after a take up to a refresh after arrival: ready
     // (made + a refresh) at 12.3 to 19.2 ms. The latest start: 6.944 + 5.208.
-    CHECK(gp::LadderStartTicks(0, 19200, interval, 7, k144) == k144 + 5208);
-    CHECK(gp::LadderStartTicks(1000, 20000, interval, 7, k144) == 1000 + k144 + 5208);
-    CHECK(gp::LadderStartTicks(0, 12000, interval, 7, k144) == 12000);  // ready earlier: unchanged
-    // x4 and 2x keep their ready time (ticket 01), even when it is later.
-    CHECK(gp::LadderStartTicks(0, 9400, interval, 3, k144) == 9400);
-    CHECK(gp::LadderStartTicks(0, 12500, kSecond / 60, 3, k144) == 12500);
-    CHECK(gp::LadderStartTicks(0, 30000, interval, 1, k144) == 30000);
-    CHECK(gp::LadderStartTicks(1000, 30000, interval, 0, k144) == 30000);  // real frames only
-    CHECK(gp::LadderStartTicks(1000, 30000, 0, 7, k144) == 30000);
+    CHECK(gp::LadderStartTicks(0, 19200, interval, 7, k144, true) == k144 + 5208);
+    CHECK(gp::LadderStartTicks(1000, 20000, interval, 7, k144, true) == 1000 + k144 + 5208);
+    CHECK(gp::LadderStartTicks(0, 12000, interval, 7, k144, true) == 12000);  // ready earlier: unchanged
+    CHECK(gp::LadderStartTicks(1000, 30000, interval, 0, k144, true) == 30000);  // no ladder
+    CHECK(gp::LadderStartTicks(1000, 30000, 0, 7, k144, true) == 30000);
+}
+
+TEST_CASE("Ladder start, taken at once (x4, 2x): no later than a slot and half a step after arrival") {
+    // 60 fps x4: a quarter is 4167. Made in 3 ms, ready at 9.9 ms; the
+    // latest start 6.944 + 2.083.
+    CHECK(gp::LadderStartTicks(0, 3000 + k144, kSecond / 60, 3, k144, false) == k144 + 2083);
+    CHECK(gp::LadderStartTicks(500, 20000, kSecond / 60, 3, kSecond / 72, false) == 500 + kSecond / 72 + 2083);
+    // 30 fps: ready (9.9 ms) is before the latest (6.944 + 4.167): unchanged.
+    CHECK(gp::LadderStartTicks(0, 3000 + k144, kSecond / 30, 3, k144, false) == 3000 + k144);
+    CHECK(gp::LadderStartTicks(0, 30000, kSecond / 30, 1, k144, false) == k144 + 8333);  // 2x: a step is 16667
 }
 
 #include <algorithm>
@@ -160,7 +184,7 @@ TEST_CASE("Target x8 at 30 fps, generating 5.4 ms after the present: every Uniqu
             if (next < arrivals.size() && arrivals[next] <= pass) {
                 schedule.UniqueFrameArrived(arrivals[next], next + 1, 1920, 1080);
                 busyUntil = pass + generation;
-                schedule.Begin(7, k144, gp::LadderStartTicks(arrivals[next], busyUntil + k144, interval, 7, k144));
+                schedule.Begin(7, 144, gp::LadderStartTicks(arrivals[next], busyUntil + k144, interval, 7, k144, true), k144);
                 current = static_cast<int>(next++);
             }
         }

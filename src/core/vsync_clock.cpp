@@ -34,12 +34,33 @@ uint32_t VsyncClock::Sample(const VsyncSample& sample) {
     return missed;
 }
 
+void VsyncClock::Presented(uint64_t presentCount, int64_t displayTicks) {
+    asked_[presentCount % asked_.size()] = {presentCount, displayTicks};
+}
+
+uint32_t VsyncClock::Late(const VsyncSample& sample, int64_t nominalPeriodTicks) {
+    if (sample.refreshCount == 0 || sample.syncRefresh < sample.refreshCount) return 0;
+    if (sample.presentCount == 0 || sample.presentCount == judged_) return 0;
+    const Asked& asked = asked_[sample.presentCount % asked_.size()];
+    if (asked.presentCount != sample.presentCount) return 0;
+    judged_ = sample.presentCount;
+    const int64_t period = Period(nominalPeriodTicks);
+    if (period <= 0) return 0;
+    const int64_t shown =
+        sample.vblankTicks - static_cast<int64_t>(sample.syncRefresh - sample.refreshCount) * period;
+    const int64_t late = shown - asked.displayTicks;
+    if (late <= period / 2) return 0;
+    return static_cast<uint32_t>((late + period / 2) / period);
+}
+
 void VsyncClock::Reset() {
     latest_.reset();
     reference_.reset();
     measuredPeriod_ = 0;
     validSamples_ = 0;
     lastGiven_.reset();
+    asked_ = {};
+    judged_ = 0;
 }
 
 int64_t VsyncClock::Period(int64_t nominalPeriodTicks) const {
