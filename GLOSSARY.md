@@ -39,6 +39,9 @@ How many frames are shown for each Unique Frame while Frame Generation is on: 2x
 **Target Rate**
 How many frames per second the Viewer aims to show while Frame Generation follows a target instead of a Generation Factor. Generated Frames fill whatever the Game Rate leaves, so the shown rate stays steady when the Game Rate drops.
 
+**Rate In Use**
+The rate the Viewer actually shows with a Target Rate: the Target Rate, or the monitor's refresh rate when that is lower. When it is not above the Game Rate, only the Console's own frames are shown.
+
 **Sharp Upscale**
 Showing the Feed's picture larger than it arrived while keeping edges crisp, instead of a plain smooth stretch.
 
