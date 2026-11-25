@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "core/night_mode.h"
 #include "core/processor.h"
 #include "core/session_timer.h"
 #include "core/source.h"
@@ -78,6 +79,9 @@ public:
     void SetHalfHourClock(bool enabled);
     void SetHalfHourSession(bool enabled);
     void SetShowSessionClock(bool enabled);
+    // Night mode: a fixed strength now, or Auto following the scene's
+    // brightness (checked every tick while Playing). Never presents.
+    void SetNightMode(NightMode mode);
     void RestartSessionTimer();
     void ToggleSessionPause();
     std::wstring DailyPlayTime();
@@ -96,9 +100,13 @@ private:
     void LogTimedFrames();
     void UpdateOverlays(bool redrawClock = false);
     void UpdateReminders();
+    void UpdateAutoNight();
     int64_t Now() const;
 
     HWND window_;
+    NightMode nightMode_ = NightMode::Off;
+    AutoNightMode autoNight_;
+    float loggedNightStrength_ = -1;
     std::wstring dailyPath_;
     std::map<int, uint64_t> dailyMs_;
     int today_ = 0;

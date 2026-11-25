@@ -212,6 +212,7 @@ void FeedKeeper::Tick() {
     Apply(machine_.Tick(now));
     ShowState();
     UpdateReminders();
+    UpdateAutoNight();
     if (++ticks_ % (1000 / kTickMs) == 0) {
         LogSignalProbe();
         LogFrames();
@@ -281,6 +282,28 @@ void FeedKeeper::SetFpsCounter(bool on) {
     fpsCounter_ = on;
     Log("Frames: FPS counter %s", fpsCounter_ ? "on" : "off");
     UpdateOverlays();
+}
+
+void FeedKeeper::SetNightMode(NightMode mode) {
+    nightMode_ = mode;
+    autoNight_.Reset();
+    loggedNightStrength_ = -1;
+    presenter_.SetNightStrength(NightModeStrength(mode));  // Auto starts at none until the first look
+    UpdateAutoNight();
+}
+
+// Auto night mode: about every 250 ms, only while a game plays (a state
+// message's black picture is no scene). The Presenter uses the new strength
+// with its next frame; nothing is presented for it.
+void FeedKeeper::UpdateAutoNight() {
+    if (nightMode_ != NightMode::Auto || machine_.State() != VideoAreaState::Playing) return;
+    const float strength = autoNight_.Update(source_->SceneLuma(), GetTickCount64());
+    presenter_.SetNightStrength(strength);
+    if (loggedNightStrength_ < 0 || std::abs(strength - loggedNightStrength_) >= 0.1f ||
+        (strength != loggedNightStrength_ && (strength == 0 || strength == 1))) {
+        Log("Night mode: auto strength %.2f (scene luma %.0f)", strength, autoNight_.SceneLuma());
+        loggedNightStrength_ = strength;
+    }
 }
 
 void FeedKeeper::RestartSessionTimer() {

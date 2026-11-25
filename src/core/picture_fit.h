@@ -19,4 +19,12 @@ constexpr bool UseSharpUpscale(bool enabled, int feedWidth, int feedHeight, Pict
            (shown.width > feedWidth || shown.height > feedHeight);
 }
 
+// Sharp Upscale's sharpening alone (RCAS, no EASU) for a Feed shown at
+// exactly its own size, e.g. 1080p on a 1080p monitor in fullscreen:
+// capture cards soften the picture a little. A smaller picture keeps the
+// smooth path.
+constexpr bool UseNativeSharpen(bool enabled, int feedWidth, int feedHeight, PictureRect shown) {
+    return enabled && feedWidth > 0 && feedHeight > 0 && shown.width == feedWidth && shown.height == feedHeight;
+}
+
 }  // namespace gp

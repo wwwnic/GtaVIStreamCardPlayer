@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "core/frame_schedule.h"
-#include "core/night_mode.h"
 #include "core/presentation_info.h"
 #include "core/processor.h"
 #include "core/video_area_text.h"
@@ -107,9 +106,10 @@ public:
     // Use EASU and RCAS when the picture is enlarged. Any thread.
     void SetSharpUpscale(bool on);
 
-    // Night mode (core/night_mode.h): lifts the dark parts of every frame
-    // shown, from the next present. No present of its own. Any thread.
-    void SetNightMode(NightMode mode);
+    // Night mode (core/night_mode.h): how strongly the dark parts of every
+    // frame shown are lifted, 0 (none) to 1, from the next present. No
+    // present of its own. Any thread.
+    void SetNightStrength(float strength);
 
     // Sets the generator asked for Generated Frames with each Unique Frame,
     // from the next one; empty (the default): none, every frame is shown

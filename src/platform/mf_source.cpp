@@ -247,10 +247,16 @@ public:
             if (MFGetAttributeUINT32(sample, MFSampleExtension_Discontinuity, FALSE)) discontinuities_++;
             if (FramePtr frame = CopySample(sample, arrival.QuadPart)) {
                 frames_++;
-                if (lumaWanted_.exchange(false)) {
+                const bool probeWanted = lumaWanted_.exchange(false);
+                // 576 points, about every 15th frame: a few microseconds.
+                if (probeWanted || ++sinceSceneLuma_ >= 15) {
+                    sinceSceneLuma_ = 0;
                     const LumaSummary luma = SummarizeLuma(*frame);
-                    std::lock_guard lumaLock(lumaMutex_);
-                    luma_ = luma;
+                    sceneLuma_ = luma.mean;
+                    if (probeWanted) {
+                        std::lock_guard lumaLock(lumaMutex_);
+                        luma_ = luma;
+                    }
                 }
                 sink_(std::move(frame));
             }
@@ -357,6 +363,13 @@ private:
     std::atomic<bool> lumaWanted_{true};
     std::mutex lumaMutex_;
     LumaSummary luma_;
+
+public:
+    // Auto night mode (Source::SceneLuma). Reader thread writes, any thread reads.
+    std::atomic<int> sceneLuma_{-1};
+
+private:
+    uint32_t sinceSceneLuma_ = 0;  // reader thread only
 };
 
 class MediaFoundationSource final : public Source {
@@ -415,6 +428,7 @@ public:
     std::optional<CaptureMode> CurrentMode() const override { return currentMode_; }
 
     Probe TakeProbe() override { return callback_ ? callback_->TakeProbe() : Probe{}; }
+    int SceneLuma() const override { return callback_ ? callback_->sceneLuma_.load() : -1; }
 
 private:
     // Retries happen every second or so; their details are logged only when

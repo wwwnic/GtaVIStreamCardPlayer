@@ -104,6 +104,10 @@ public:
 
     // Like every call here: from the thread that calls Start and Stop.
     virtual Probe TakeProbe() = 0;
+
+    // Mean luma (0-255) of a recent frame, for auto night mode; below 0 while
+    // none is known. Measured about four times a second; any thread.
+    virtual int SceneLuma() const { return -1; }
 };
 
 }  // namespace gp

@@ -256,7 +256,7 @@ public:
 
     // No repaint: an extra present would count as a game frame for Lossless Scaling.
     void SetSharpUpscale(bool on) { sharpUpscale_ = on; }
-    void SetNightMode(NightMode mode) { nightMode_ = static_cast<int>(mode); }
+    void SetNightStrength(float strength) { nightStrength_ = std::clamp(strength, 0.0f, 1.0f); }
     void SetVsync(bool on) { vsync_ = on; }
     void SetTargetRate(int rate) {
         chosenTargetRate_ = rate;
@@ -380,19 +380,15 @@ private:
         constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         device_->CreateBuffer(&constants, nullptr, &constants_);
 
-        // Night mode: one fixed buffer per choice. One that fails is left
-        // empty: an unbound buffer reads 0, so that choice shows no change.
-        for (int i = 0; i < 3; ++i) {
-            const float values[4] = {NightModeStrength(static_cast<NightMode>(i)), 0, 0, 0};
-            D3D11_BUFFER_DESC desc = {};
-            desc.ByteWidth = sizeof(values);
-            desc.Usage = D3D11_USAGE_IMMUTABLE;
-            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            D3D11_SUBRESOURCE_DATA initial = {};
-            initial.pSysMem = values;
-            if (FAILED(device_->CreateBuffer(&desc, &initial, &nightBuffers_[i])))
-                Log("Presenter: no Night mode buffer %d; that choice shows the picture unchanged", i);
-        }
+        // Night mode's strength, uploaded when it changes. If it fails the
+        // slot stays unbound, which reads 0: the picture unchanged.
+        D3D11_BUFFER_DESC night = {};
+        night.ByteWidth = 16;
+        night.Usage = D3D11_USAGE_DEFAULT;
+        night.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        if (FAILED(device_->CreateBuffer(&night, nullptr, &nightBuffer_)))
+            Log("Presenter: no Night mode buffer; Night mode shows the picture unchanged");
+        uploadedNightStrength_ = -1;
 
         D3D11_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -455,7 +451,7 @@ private:
         UpscaleUsage(false, scaledWidth_, scaledHeight_);
         scaledTarget_.Reset(); scaledView_.Reset();
         scaledWidth_ = scaledHeight_ = 0;
-        for (auto& buffer : nightBuffers_) buffer.Reset();
+        nightBuffer_.Reset();
         easuShader_.Reset(); rcasShader_.Reset();
         triedUpscaleShaders_ = false;
         vertexShader_.Reset(); convertShader_.Reset(); showShader_.Reset();
@@ -1144,6 +1140,15 @@ private:
         return SUCCEEDED(hr);
     }
 
+    // The upscale shaders without the scaled texture: native-size sharpening.
+    bool PrepareSharpen() {
+        if (!triedUpscaleShaders_) {
+            triedUpscaleShaders_ = true;
+            if (CreateUpscaleShader("Easu", easuShader_)) CreateUpscaleShader("Rcas", rcasShader_);
+        }
+        return rcasShader_ != nullptr;
+    }
+
     bool PrepareUpscale(PictureRect fit) {
         if (!triedUpscaleShaders_) {
             triedUpscaleShaders_ = true;
@@ -1165,14 +1170,20 @@ private:
         return true;
     }
 
-    void UpscaleUsage(bool active, int width, int height) {
+    void UpscaleUsage(bool active, int width, int height, bool sharpenNative = false) {
         {
             std::lock_guard lock(statsMutex_);
             presentation_.sharpUpscale = active;
+            presentation_.sharpenNative = sharpenNative;
             presentation_.feedWidth = pictureWidth_;
             presentation_.feedHeight = pictureHeight_;
             presentation_.shownWidth = width;
             presentation_.shownHeight = height;
+        }
+        if (sharpenNative != usingSharpen_) {
+            usingSharpen_ = sharpenNative;
+            Log("Upscale: RCAS sharpening at native size %s (picture %ux%u)", sharpenNative ? "on" : "off",
+                pictureWidth_, pictureHeight_);
         }
         if (active == usingUpscale_) return;
         usingUpscale_ = active;
@@ -1200,7 +1211,10 @@ private:
             context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             context_->VSSetShader(vertexShader_.Get(), nullptr, 0);
             const bool sharp = UseSharpUpscale(sharpUpscale_, pictureWidth_, pictureHeight_, fit) && PrepareUpscale(fit);
-            UpscaleUsage(sharp, fit.width, fit.height);
+            // At its own size: RCAS straight from the picture, pixel for pixel.
+            const bool sharpen = !sharp && UseNativeSharpen(sharpUpscale_, pictureWidth_, pictureHeight_, fit) &&
+                                 PrepareSharpen();
+            UpscaleUsage(sharp, fit.width, fit.height, sharpen);
             if (sharp) {
                 const D3D11_VIEWPORT whole = {0, 0, viewport.Width, viewport.Height, 0, 1};
                 ID3D11RenderTargetView* scaled = scaledTarget_.Get();
@@ -1213,9 +1227,15 @@ private:
                 picture = scaledView_.Get();
             }
             context_->RSSetViewports(1, &viewport);
-            ID3D11Buffer* night = nightBuffers_[nightMode_.load()].Get();
+            const float strength = nightStrength_.load();
+            if (nightBuffer_ && strength != uploadedNightStrength_) {
+                const float values[4] = {strength, 0, 0, 0};
+                context_->UpdateSubresource(nightBuffer_.Get(), 0, nullptr, values, 0, 0);
+                uploadedNightStrength_ = strength;
+            }
+            ID3D11Buffer* night = nightBuffer_.Get();
             context_->PSSetConstantBuffers(1, 1, &night);
-            context_->PSSetShader(sharp ? rcasShader_.Get() : showShader_.Get(), nullptr, 0);
+            context_->PSSetShader(sharp || sharpen ? rcasShader_.Get() : showShader_.Get(), nullptr, 0);
             context_->PSSetSamplers(0, 1, &sampler);
             context_->PSSetShaderResources(2, 1, &picture);
             context_->Draw(3, 0);
@@ -1261,13 +1281,14 @@ private:
     std::atomic<bool> resized_{false};
     std::atomic<bool> repaint_{false};
     std::atomic<bool> pictureVisible_{true};
-    std::atomic<int> nightMode_{0};  // a NightMode; any thread sets it, the next present uses it
-    ComPtr<ID3D11Buffer> nightBuffers_[3];  // strength per NightMode, constant buffer b1
+    std::atomic<float> nightStrength_{0};  // any thread sets it, the next present uses it
+    ComPtr<ID3D11Buffer> nightBuffer_;      // constant buffer b1 (platform/night_mode_shader.h)
+    float uploadedNightStrength_ = -1;      // presenting thread only
     ComPtr<ID3D11PixelShader> easuShader_, rcasShader_;
     ComPtr<ID3D11RenderTargetView> scaledTarget_;
     ComPtr<ID3D11ShaderResourceView> scaledView_;
     int scaledWidth_ = 0, scaledHeight_ = 0;
-    bool triedUpscaleShaders_ = false, usingUpscale_ = false;
+    bool triedUpscaleShaders_ = false, usingUpscale_ = false, usingSharpen_ = false;
     std::atomic<bool> sharpUpscale_{false};
     std::atomic<bool> vsync_{false};
     struct SubmittedFrame {
@@ -1380,7 +1401,7 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 void Presenter::SetSharpUpscale(bool on) { impl_->SetSharpUpscale(on); }
-void Presenter::SetNightMode(NightMode mode) { impl_->SetNightMode(mode); }
+void Presenter::SetNightStrength(float strength) { impl_->SetNightStrength(strength); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 void Presenter::SetTargetRate(int rate) { impl_->SetTargetRate(rate); }
 void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target) {

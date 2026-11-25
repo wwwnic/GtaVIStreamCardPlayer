@@ -162,9 +162,10 @@ void CycleNightMode(App& app) {
     app.settings.nightMode = gp::NextNightMode(app.settings.nightMode);
     app.remembered.nightMode = app.settings.nightMode;
     gp::Log("Menu: Night mode %s", gp::NightModeWord(app.settings.nightMode));
-    app.presenter.SetNightMode(app.settings.nightMode);
+    app.feed.SetNightMode(app.settings.nightMode);
     app.feedback.Show(app.settings.nightMode == gp::NightMode::Low    ? "Night mode low"
                       : app.settings.nightMode == gp::NightMode::High ? "Night mode high"
+                      : app.settings.nightMode == gp::NightMode::Auto ? "Night mode auto"
                                                                       : "Night mode off");
 }
 
@@ -201,7 +202,7 @@ void ApplyAllSettings(App& app) {
     }
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
     app.presenter.SetSharpUpscale(s.sharpUpscale);
-    app.presenter.SetNightMode(s.nightMode);
+    app.feed.SetNightMode(s.nightMode);
     if (s.nightMode != gp::NightMode::Off) gp::Log("Menu: Night mode %s", gp::NightModeWord(s.nightMode));
     app.presenter.SetVsync(s.vsync);
     app.presenter.SetTargetRate(s.targetRate);

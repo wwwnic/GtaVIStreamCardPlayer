@@ -363,6 +363,10 @@ TEST_CASE("About distinguishes starting generation from off and unused upscale")
     info.sharpUpscaleChosen = true;
     CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (starting)"));
     CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: off (not in use for this picture)"));
+    info.presentation.sharpenNative = true;
+    info.presentation.feedWidth = 1920;
+    info.presentation.feedHeight = 1080;
+    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: sharpening only (1920x1080 shown at its own size)"));
 }
 
 TEST_CASE("About with generation labels the override as Game and all presents as Shown") {
@@ -415,5 +419,8 @@ TEST_CASE("View > Night mode shows the level, checked while on, and N is in the 
     CHECK(view.nightMode.checked);
     settings.nightMode = gp::NightMode::High;
     CHECK(gp::ViewItems(settings, true).nightMode.label == L"Night mode (high)\tN");
+    settings.nightMode = gp::NightMode::Auto;
+    CHECK(gp::ViewItems(settings, false).nightMode.label == L"Night mode (auto)\tN");
+    CHECK(gp::ViewItems(settings, false).nightMode.checked);
     CHECK(Contains(gp::HotkeysText(), L"N\tNight mode"));
 }

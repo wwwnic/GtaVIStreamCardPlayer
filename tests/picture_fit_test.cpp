@@ -1,5 +1,7 @@
 #include "doctest.h"
 
+#include <utility>
+
 #include "core/picture_fit.h"
 
 using gp::FitPicture;
@@ -46,4 +48,18 @@ TEST_CASE("Sharp Upscale applies only to an enlarged Feed with the choice on") {
     CHECK_FALSE(gp::UseSharpUpscale(true, 1280, 720, FitPicture(1280, 720)));
     CHECK_FALSE(gp::UseSharpUpscale(true, 1920, 1080, FitPicture(1280, 720)));
     CHECK_FALSE(gp::UseSharpUpscale(true, 0, 0, FitPicture(1280, 720)));
+}
+
+TEST_CASE("sharpening alone applies to a Feed shown at exactly its own size") {
+    CHECK(gp::UseNativeSharpen(true, 1920, 1080, FitPicture(1920, 1080)));
+    CHECK(gp::UseNativeSharpen(true, 1280, 720, FitPicture(1280, 720)));
+    CHECK_FALSE(gp::UseNativeSharpen(false, 1920, 1080, FitPicture(1920, 1080)));
+    CHECK_FALSE(gp::UseNativeSharpen(true, 1920, 1080, FitPicture(1280, 720)));    // smaller: smooth
+    CHECK_FALSE(gp::UseNativeSharpen(true, 1280, 720, FitPicture(1920, 1080)));    // larger: Sharp Upscale
+    CHECK_FALSE(gp::UseNativeSharpen(true, 0, 0, FitPicture(0, 0)));
+    // Never both at once.
+    for (const auto& [w, h] : {std::pair{1920, 1080}, std::pair{2560, 1440}, std::pair{1280, 720}}) {
+        const auto shown = FitPicture(w, h);
+        CHECK_FALSE((gp::UseNativeSharpen(true, 1920, 1080, shown) && gp::UseSharpUpscale(true, 1920, 1080, shown)));
+    }
 }

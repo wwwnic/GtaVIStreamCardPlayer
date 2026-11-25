@@ -43,10 +43,10 @@ How many frames per second the Viewer aims to show while Frame Generation follow
 The rate the Viewer actually shows with a Target Rate: the Target Rate, or the monitor's refresh rate when that is lower. When it is not above the Game Rate, only the Console's own frames are shown.
 
 **Night Mode**
-Lifting the dark parts of the Feed's picture so night scenes and dark rooms read better, leaving bright parts as they were. Off, low or high.
+Lifting the dark parts of the Feed's picture so night scenes and dark rooms read better, leaving bright parts as they were. Off, low, high or auto (stronger the darker the scene).
 
 **Sharp Upscale**
-Showing the Feed's picture larger than it arrived while keeping edges crisp, instead of a plain smooth stretch.
+Showing the Feed's picture larger than it arrived while keeping edges crisp, instead of a plain smooth stretch. A picture shown at exactly its own size gets the sharpening alone.
 
 **Passthrough**
 The Capture Card's HDMI output that forwards the Console's picture straight to a TV or monitor, bypassing the PC.

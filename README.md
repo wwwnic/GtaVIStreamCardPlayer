@@ -37,8 +37,8 @@ Only one program can use a capture card at a time: close OBS or the card's own s
 | M | Mute |
 | J / K | Sound 50 ms earlier / later (Audio Delay) |
 | G | Frame generation off / 2x / 4x / Target |
-| U | Sharp upscale |
-| N | Night mode off / low / high (lifts dark scenes) |
+| U | Sharp upscale (also sharpens a picture shown at its own size) |
+| N | Night mode off / low / high / auto (lifts dark scenes; auto follows the scene) |
 | F | FPS counter |
 | C | Show or hide the clock and session time |
 | P | Pause or resume the session timer |

@@ -18,6 +18,8 @@ struct PresentationInfo {
     // Target running: the rate in use (the smaller of the Target Rate and the
     // monitor's refresh); 0 otherwise.
     int targetRate = 0;
+    // Sharp Upscale's sharpening alone, for a Feed shown at its own size.
+    bool sharpenNative = false;
 };
 
 // Successful presents only, including repaint and Generated Frames. No refresh cap.

@@ -96,6 +96,7 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     menu.sharpUpscale = {L"Sharp upscale\tU", settings.sharpUpscale};
     menu.nightMode = {settings.nightMode == NightMode::Low    ? L"Night mode (low)\tN"
                       : settings.nightMode == NightMode::High ? L"Night mode (high)\tN"
+                      : settings.nightMode == NightMode::Auto ? L"Night mode (auto)\tN"
                                                               : L"Night mode\tN",
                       settings.nightMode != NightMode::Off};
     menu.generation = {L"Frame generation " + std::wstring(factor.begin(), factor.end()) + L"\tG", generating, available};
@@ -120,7 +121,7 @@ std::wstring HotkeysText() {
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
            L"U\tSharp upscale\n"
-           L"N\tNight mode off / low / high\n"
+           L"N\tNight mode off / low / high / auto\n"
            L"G\tFrame generation off / 2x / 4x / Target\n"
            L"F\tFPS counter\n"
            L"C\tShow clock and session time\n"
@@ -173,6 +174,8 @@ std::wstring AboutText(const AboutInfo& info) {
     if (p.sharpUpscale) {
         text += L"on (" + SizeText(p.feedWidth, p.feedHeight) + L" -> " +
                 SizeText(p.shownWidth, p.shownHeight) + L")";
+    } else if (p.sharpenNative) {
+        text += L"sharpening only (" + SizeText(p.feedWidth, p.feedHeight) + L" shown at its own size)";
     } else {
         text += info.sharpUpscaleChosen ? L"off (not in use for this picture)" : L"off";
     }
