@@ -167,9 +167,13 @@ std::string SettingsToText(const RememberedSettings& settings) {
          (v.customTargetRate == kNoCustomTargetRate ? std::string("none") : std::to_string(v.customTargetRate)) +
          "\n";
     t += std::string("sharpUpscale=") + Word(v.sharpUpscale) + "\n";
+    t += std::string("night_mode=") + NightModeWord(v.nightMode) + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
     t += std::string("fps_counter=") + Word(v.fpsCounter) + "\n";
+    t += std::string("half_hour_clock=") + Word(v.halfHourClock) + "\n";
+    t += std::string("half_hour_session=") + Word(v.halfHourSession) + "\n";
+    t += std::string("show_session_clock=") + Word(v.showSessionClock) + "\n";
     return t;
 }
 
@@ -229,9 +233,15 @@ RememberedSettings SettingsFromText(std::string_view text) {
     // A number in use that is no preset is the custom one, whatever else was saved.
     if (v.targetRate != kTargetRateMonitor && !IsTargetRatePreset(v.targetRate)) v.customTargetRate = v.targetRate;
     if (const auto* x = find("sharpUpscale")) v.sharpUpscale = BoolOf(*x).value_or(false);
+    if (const auto* x = find("night_mode")) v.nightMode = NightModeOf(*x).value_or(NightMode::Off);
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);
     if (const std::string* x = find("always_on_top")) v.alwaysOnTop = BoolOf(*x).value_or(false);
     if (const std::string* x = find("fps_counter")) v.fpsCounter = BoolOf(*x).value_or(false);
+    if (const std::string* x = find("half_hour_clock")) v.halfHourClock = BoolOf(*x).value_or(true);
+    if (const auto* x = find("half_hour_session")) v.halfHourSession = BoolOf(*x).value_or(false);
+    // Older versions always showed the clock alongside FPS.
+    v.showSessionClock = v.fpsCounter;
+    if (const auto* x = find("show_session_clock")) v.showSessionClock = BoolOf(*x).value_or(v.fpsCounter);
     return s;
 }
 

@@ -77,6 +77,8 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
         measureNew_ = captured;
         measureOld_ = reference_;
     }
+    if (reference_ && (reference_->width != captured->width || reference_->height != captured->height ||
+                       captured->sequence < reference_->sequence)) inputRate_.Reset();
     if (unique) {
         reference_ = captured;
         referenceShown_ = false;
@@ -120,7 +122,7 @@ void UniqueFrameProcessor::Process(FramePtr captured, std::vector<TimedFrame>& o
         }
         if (emit) totals_.presented++; else totals_.dropped++;
     }
-    if (emit) out.push_back({std::move(captured), arrival});
+    if (emit) out.push_back({std::move(captured), arrival, inputRate_.Arrived(arrival)});
 }
 
 void UniqueFrameProcessor::AfterSubmit() {
@@ -136,6 +138,7 @@ void UniqueFrameProcessor::AfterSubmit() {
 }
 
 void UniqueFrameProcessor::Reset() {
+    inputRate_.Reset();
     measureNew_.reset();
     measureOld_.reset();
     reference_.reset();

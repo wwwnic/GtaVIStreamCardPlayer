@@ -56,7 +56,7 @@ const UINT_PTR kRunTimer = 2;
 struct App {
     App(HWND window, gp::MenuBar& menuBar, double tolerance, std::wstring settingsPath, std::string settingsOnDisk)
         : window(window), menu(menuBar), settingsPath(std::move(settingsPath)), saveTiming(std::move(settingsOnDisk)),
-          feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance) {}
+          feedback(presenter), fullscreen(window), feed(window, presenter, sound, tolerance, this->settingsPath) {}
     HWND window;
     gp::MenuBar& menu;
     gp::GenerationAvailability generationAvailability = gp::AmfRuntimeInstalled()
@@ -156,6 +156,18 @@ void ToggleUpscale(App& app, bool repeated) {
     app.feedback.Show(app.settings.sharpUpscale ? "Sharp upscale on" : "Sharp upscale off");
 }
 
+// N and View > Night mode: off, low, high. No present of its own (the
+// feedback line presents once, with the new look).
+void CycleNightMode(App& app) {
+    app.settings.nightMode = gp::NextNightMode(app.settings.nightMode);
+    app.remembered.nightMode = app.settings.nightMode;
+    gp::Log("Menu: Night mode %s", gp::NightModeWord(app.settings.nightMode));
+    app.presenter.SetNightMode(app.settings.nightMode);
+    app.feedback.Show(app.settings.nightMode == gp::NightMode::Low    ? "Night mode low"
+                      : app.settings.nightMode == gp::NightMode::High ? "Night mode high"
+                                                                      : "Night mode off");
+}
+
 void ToggleGeneration(App& app) {
     if (app.generationAvailability != gp::GenerationAvailability::Available) {
         app.feedback.Show(app.generationAvailability == gp::GenerationAvailability::MissingRuntime
@@ -189,6 +201,8 @@ void ApplyAllSettings(App& app) {
     }
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
     app.presenter.SetSharpUpscale(s.sharpUpscale);
+    app.presenter.SetNightMode(s.nightMode);
+    if (s.nightMode != gp::NightMode::Off) gp::Log("Menu: Night mode %s", gp::NightModeWord(s.nightMode));
     app.presenter.SetVsync(s.vsync);
     app.presenter.SetTargetRate(s.targetRate);
     if (s.targetRate == gp::kTargetRateMonitor) {
@@ -198,6 +212,9 @@ void ApplyAllSettings(App& app) {
     }
     if (s.customTargetRate != gp::kNoCustomTargetRate) gp::Log("Menu: Target rate Custom kept %d", s.customTargetRate);
     if (s.fpsCounter) app.feed.SetFpsCounter(true);  // with the first frame, no present of its own
+    app.feed.SetHalfHourClock(s.halfHourClock);
+    app.feed.SetHalfHourSession(s.halfHourSession);
+    app.feed.SetShowSessionClock(s.showSessionClock);
     if (s.alwaysOnTop) app.fullscreen.SetAlwaysOnTop(true);
     if (!s.captureCard.empty() || s.resolution) app.feed.SetChoice(s.captureCard, s.captureCardId, s.resolution);
     gp::Log("Menu: V-sync %s", s.vsync ? "on" : "off");
@@ -321,6 +338,7 @@ void HandleMenuCommand(App& app, UINT id) {
                 (GetWindowLongPtrW(app.window, GWL_EXSTYLE) & WS_EX_TOPMOST) ? "yes" : "no");
         break;
     case gp::kMenuSharpUpscale: ToggleUpscale(app, false); break;
+    case gp::kMenuNightMode: CycleNightMode(app); break;
     case gp::kMenuGeneration: ToggleGeneration(app); break;
     case gp::kMenuVsync:
         if (s.generation != gp::GenerationFactor::Off) break;
@@ -331,6 +349,28 @@ void HandleMenuCommand(App& app, UINT id) {
                 s.vsync ? "presents wait for the refresh, sync interval 1" : "present on arrival, tearing allowed");
         break;
     case gp::kMenuFpsCounter: ToggleFpsCounter(app, "Menu"); break;
+    case gp::kMenuHalfHourClock:
+        kept.halfHourClock = s.halfHourClock = !s.halfHourClock;
+        app.feed.SetHalfHourClock(s.halfHourClock);
+        break;
+    case gp::kMenuHalfHourSession:
+        kept.halfHourSession = s.halfHourSession = !s.halfHourSession;
+        app.feed.SetHalfHourSession(s.halfHourSession);
+        break;
+    case gp::kMenuShowSessionClock:
+        kept.showSessionClock = s.showSessionClock = !s.showSessionClock;
+        app.feed.SetShowSessionClock(s.showSessionClock);
+        break;
+    case gp::kMenuRestartSessionTimer:
+        // Starting a new session preserves the daily total.
+        if (MessageBoxW(app.window, L"Reset the session timer to zero and start counting again?",
+                        L"Restart session timer", MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) == IDYES) {
+            app.feed.RestartSessionTimer();
+        }
+        break;
+    case gp::kMenuDailyPlayTime:
+        MessageBoxW(app.window, app.feed.DailyPlayTime().c_str(), L"Daily play time", MB_OK);
+        break;
     case gp::kMenuHotkeys:
         gp::Log("Menu: Hotkeys");
         MessageBoxW(app.window, gp::HotkeysText().c_str(), L"GamePlayer hotkeys", MB_OK | MB_ICONINFORMATION);
@@ -623,6 +663,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             ToggleUpscale(*app, (lParam & (1 << 30)) != 0);
             return 0;
         }
+        if (app && wParam == 'N') {
+            if (!(lParam & (1 << 30))) CycleNightMode(*app);  // held N steps once
+            return 0;
+        }
         if (app && wParam == 'G') {
             if (!(lParam & (1 << 30))) ToggleGeneration(*app);
             return 0;
@@ -630,6 +674,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         if (app && HandleAudioKey(*app, wParam, lParam)) return 0;
         if (app && wParam == 'F') {
             if (!(lParam & (1 << 30))) ToggleFpsCounter(*app, "Key");  // held F toggles once
+            return 0;
+        }
+        if (app && wParam == 'C') {
+            if (!(lParam & (1 << 30))) HandleMenuCommand(*app, gp::kMenuShowSessionClock);
+            return 0;
+        }
+        if (app && wParam == 'P') {
+            if (!(lParam & (1 << 30))) app->feed.ToggleSessionPause();
             return 0;
         }
         break;

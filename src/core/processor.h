@@ -15,6 +15,8 @@ struct TimedFrame {
     // QueryPerformanceCounter time to show it at. A time not in the future
     // means "as soon as possible".
     int64_t showAtQpc = 0;
+    // Frames per second emitted by the Processor. Zero while unmeasured.
+    double inputRate = 0;
 };
 
 // Takes each captured frame and emits zero or more frames to show.

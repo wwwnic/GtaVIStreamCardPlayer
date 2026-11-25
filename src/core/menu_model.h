@@ -58,8 +58,12 @@ struct ViewMenu {
     MenuItem alwaysOnTop;
     MenuItem generation;
     MenuItem sharpUpscale;
+    MenuItem nightMode;   // in step with the N key: off, low, high
     MenuItem vsync;
     MenuItem fpsCounter;  // in step with the F key
+    MenuItem halfHourClock;
+    MenuItem halfHourSession;
+    MenuItem showSessionClock;
 };
 ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn,
                    GenerationAvailability availability = GenerationAvailability::Available);

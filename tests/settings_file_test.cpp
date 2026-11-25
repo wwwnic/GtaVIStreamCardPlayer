@@ -27,6 +27,10 @@ RememberedSettings Changed() {
     s.viewer.customTargetRate = 100;
     s.viewer.vsync = true;
     s.viewer.fpsCounter = true;
+    s.viewer.halfHourClock = false;
+    s.viewer.halfHourSession = true;
+    s.viewer.showSessionClock = true;
+    s.viewer.nightMode = gp::NightMode::High;
     s.window = gp::SavedWindow{WindowRect{-1800, 120, -1800 + 1296, 120 + 759}, true};
     return s;
 }
@@ -42,10 +46,24 @@ void CheckDefaults(const RememberedSettings& s) {
     CHECK_FALSE(s.viewer.alwaysOnTop);
     CHECK_FALSE(s.viewer.vsync);
     CHECK_FALSE(s.viewer.fpsCounter);
+    CHECK(s.viewer.halfHourClock);
+    CHECK_FALSE(s.viewer.halfHourSession);
+    CHECK_FALSE(s.viewer.showSessionClock);
+    CHECK(s.viewer.nightMode == gp::NightMode::Off);
     CHECK_FALSE(s.window.has_value());
 }
 
 }  // namespace
+
+TEST_CASE("old FPS settings migrate once and the session clock then saves independently") {
+    auto settings = SettingsFromText("version=1\nfps_counter=true\n");
+    CHECK(settings.viewer.showSessionClock);
+    settings.viewer.fpsCounter = false;
+    CHECK(SettingsFromText(SettingsToText(settings)) == settings);
+    settings.viewer.showSessionClock = false;
+    settings.viewer.fpsCounter = true;
+    CHECK(SettingsFromText(SettingsToText(settings)) == settings);
+}
 
 TEST_CASE("every setting survives a save and a load") {
     const RememberedSettings saved = Changed();
@@ -386,4 +404,15 @@ TEST_CASE("Sharp upscale starts off and only valid choices survive a restart") {
     settings.viewer.sharpUpscale = true;
     CHECK(SettingsFromText(SettingsToText(settings)).viewer.sharpUpscale);
     CHECK_FALSE(SettingsFromText("version=1\nsharpUpscale=damaged\n").viewer.sharpUpscale);
+}
+
+TEST_CASE("Night mode starts off and only valid choices survive a restart") {
+    RememberedSettings settings;
+    CHECK(settings.viewer.nightMode == gp::NightMode::Off);
+    settings.viewer.nightMode = gp::NightMode::Low;
+    CHECK(SettingsToText(settings).find("night_mode=low\n") != std::string::npos);
+    CHECK(SettingsFromText(SettingsToText(settings)).viewer.nightMode == gp::NightMode::Low);
+    CHECK(SettingsFromText("version=1\nnight_mode=high\n").viewer.nightMode == gp::NightMode::High);
+    CHECK(SettingsFromText("version=1\nnight_mode=dark\n").viewer.nightMode == gp::NightMode::Off);
+    CHECK(SettingsFromText("version=1\nsharpUpscale=true\n").viewer.nightMode == gp::NightMode::Off);
 }

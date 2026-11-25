@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "core/unique_frames.h"
+#include "core/ladder_depth.h"
+#include "core/latest_slot.h"
 
 using gp::Frame;
 using gp::FramePtr;
@@ -71,6 +73,36 @@ struct Feed {
 };
 
 }  // namespace
+
+TEST_CASE("Target follows the input cadence when the renderer misses one frame in six") {
+    constexpr int64_t frequency = 720000;
+    UniqueFrameProcessor processor(frequency);
+    gp::LatestSlot<TimedFrame> slot;
+    gp::LadderDepth depth(frequency);
+    int sequence = 0;
+    for (const int fps : {60, 30, 60}) {
+        int emitted = 0, replaced = 0;
+        for (int i = 0; i < 180; ++i) {
+            auto frame = Picture(fps == 30 ? i / 2 : i);
+            frame->sequence = ++sequence;
+            frame->arrivalQpc = sequence * (frequency / 60);
+            std::vector<TimedFrame> out;
+            processor.Process(frame, out);
+            if (!out.empty()) {
+                replaced += slot.Put(std::move(out.front()));
+                if (++emitted % 6 != 1) {
+                    const auto taken = slot.Take();
+                    REQUIRE(taken);
+                    depth.Update(taken->inputRate, frequency / 144);
+                }
+            }
+            processor.AfterSubmit();
+        }
+        CHECK(replaced == emitted / 6);
+        CHECK(depth.Depth() == (fps == 60 ? 4 : 8));
+        CHECK(depth.GameRate() == doctest::Approx(fps));
+    }
+}
 
 TEST_CASE("a byte-identical frame is an exact match") {
     CHECK(gp::CompareFrames(*Picture(1), *Picture(1), 0.005) == gp::FrameMatch::Exact);

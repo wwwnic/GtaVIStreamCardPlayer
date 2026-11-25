@@ -1,4 +1,5 @@
 #include "platform/presenter.h"
+#include "platform/night_mode_shader.h"
 #include "platform/sharp_upscale_shader.h"
 
 #include <d3d11.h>
@@ -13,6 +14,7 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 
 #include "core/colour.h"
@@ -87,7 +89,7 @@ Texture2D<float4> picture : register(t2);
 SamplerState smooth : register(s0);
 
 float4 Show(VertexOut input) : SV_Target {
-    return float4(picture.Sample(smooth, input.uv).rgb, 1);
+    return float4(BoostShadows(picture.Sample(smooth, input.uv).rgb), 1);
 }
 )hlsl";
 
@@ -193,7 +195,7 @@ public:
 
     void Submit(TimedFrame frame, uint32_t feedGeneration) {
         if (!wake_ || !frame.frame) return;
-        if (slot_.Put({std::move(frame.frame), feedGeneration})) {
+        if (slot_.Put({std::move(frame.frame), feedGeneration, frame.inputRate})) {
             std::lock_guard lock(statsMutex_);
             stats_.replaced++;
         }
@@ -254,6 +256,7 @@ public:
 
     // No repaint: an extra present would count as a game frame for Lossless Scaling.
     void SetSharpUpscale(bool on) { sharpUpscale_ = on; }
+    void SetNightMode(NightMode mode) { nightMode_ = static_cast<int>(mode); }
     void SetVsync(bool on) { vsync_ = on; }
     void SetTargetRate(int rate) {
         chosenTargetRate_ = rate;
@@ -377,6 +380,20 @@ private:
         constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         device_->CreateBuffer(&constants, nullptr, &constants_);
 
+        // Night mode: one fixed buffer per choice. One that fails is left
+        // empty: an unbound buffer reads 0, so that choice shows no change.
+        for (int i = 0; i < 3; ++i) {
+            const float values[4] = {NightModeStrength(static_cast<NightMode>(i)), 0, 0, 0};
+            D3D11_BUFFER_DESC desc = {};
+            desc.ByteWidth = sizeof(values);
+            desc.Usage = D3D11_USAGE_IMMUTABLE;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            D3D11_SUBRESOURCE_DATA initial = {};
+            initial.pSysMem = values;
+            if (FAILED(device_->CreateBuffer(&desc, &initial, &nightBuffers_[i])))
+                Log("Presenter: no Night mode buffer %d; that choice shows the picture unchanged", i);
+        }
+
         D3D11_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -388,7 +405,8 @@ private:
     ComPtr<ID3DBlob> Compile(const char* entry, const char* target,
                              const char* source = kShaders, size_t size = sizeof kShaders - 1) {
         ComPtr<ID3DBlob> code, errors;
-        const HRESULT hr = D3DCompile(source, size, "presenter", nullptr, nullptr, entry, target,
+        const std::string program = kNightModeShader + std::string(source, size);
+        const HRESULT hr = D3DCompile(program.data(), program.size(), "presenter", nullptr, nullptr, entry, target,
                                       D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
         if (FAILED(hr)) {
             Log("Presenter: shader %s failed to compile hr=0x%08lX: %s", entry, static_cast<unsigned long>(hr),
@@ -437,6 +455,7 @@ private:
         UpscaleUsage(false, scaledWidth_, scaledHeight_);
         scaledTarget_.Reset(); scaledView_.Reset();
         scaledWidth_ = scaledHeight_ = 0;
+        for (auto& buffer : nightBuffers_) buffer.Reset();
         easuShader_.Reset(); rcasShader_.Reset();
         triedUpscaleShaders_ = false;
         vertexShader_.Reset(); convertShader_.Reset(); showShader_.Reset();
@@ -744,7 +763,7 @@ private:
 
     // takenAfterPresent: it waited for the present of the vsync after it
     // arrived (the x8 ladder), rather than taken at once.
-    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration, bool takenAfterPresent) {
+    void BeginTargetSequence(const Frame& frame, uint32_t feedGeneration, double inputRate, bool takenAfterPresent) {
         const FrameSchedule::Arrival arrival = targetSchedule_.UniqueFrameArrived(
             frame.arrivalQpc, frame.sequence, frame.width, frame.height, feedGeneration);
         FrameGenerator::Input input;
@@ -766,7 +785,7 @@ private:
         // Frame; the generator restarts the third stage's history from it.
         // Without a third FRC (it failed, or 2x frames only) x8 is wanted but
         // not asked for: the depth in use is what the generator can make.
-        ladderDepth_.Arrived(frame.arrivalQpc, arrival.forgetEarlier, slot);
+        ladderDepth_.Update(inputRate, slot);
         const int depth = DepthInUse();
         input.eighths = depth == 8;
         if (depth != loggedDepth_) {
@@ -904,7 +923,7 @@ private:
         auto next = slot_.Take();
         if (!next || !ConvertToPicture(*next->frame)) return true;
         lastFrame_ = next->frame;
-        BeginTargetSequence(*next->frame, next->feedGeneration, afterPresent);
+        BeginTargetSequence(*next->frame, next->feedGeneration, next->inputRate, afterPresent);
         if (generator_) return true;
         drawWaiting_ = true;
         return false;
@@ -1194,6 +1213,8 @@ private:
                 picture = scaledView_.Get();
             }
             context_->RSSetViewports(1, &viewport);
+            ID3D11Buffer* night = nightBuffers_[nightMode_.load()].Get();
+            context_->PSSetConstantBuffers(1, 1, &night);
             context_->PSSetShader(sharp ? rcasShader_.Get() : showShader_.Get(), nullptr, 0);
             context_->PSSetSamplers(0, 1, &sampler);
             context_->PSSetShaderResources(2, 1, &picture);
@@ -1240,6 +1261,8 @@ private:
     std::atomic<bool> resized_{false};
     std::atomic<bool> repaint_{false};
     std::atomic<bool> pictureVisible_{true};
+    std::atomic<int> nightMode_{0};  // a NightMode; any thread sets it, the next present uses it
+    ComPtr<ID3D11Buffer> nightBuffers_[3];  // strength per NightMode, constant buffer b1
     ComPtr<ID3D11PixelShader> easuShader_, rcasShader_;
     ComPtr<ID3D11RenderTargetView> scaledTarget_;
     ComPtr<ID3D11ShaderResourceView> scaledView_;
@@ -1250,6 +1273,7 @@ private:
     struct SubmittedFrame {
         FramePtr frame;
         uint32_t feedGeneration;
+        double inputRate;
     };
     LatestSlot<SubmittedFrame> slot_;
 
@@ -1356,6 +1380,7 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 void Presenter::SetSharpUpscale(bool on) { impl_->SetSharpUpscale(on); }
+void Presenter::SetNightMode(NightMode mode) { impl_->SetNightMode(mode); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 void Presenter::SetTargetRate(int rate) { impl_->SetTargetRate(rate); }
 void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target) {

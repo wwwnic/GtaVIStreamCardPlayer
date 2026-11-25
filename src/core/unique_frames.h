@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/frame.h"
+#include "core/ladder_depth.h"
 #include "core/processor.h"
 
 namespace gp {
@@ -136,6 +137,7 @@ private:
     std::atomic<GameRateOverride> override_{GameRateOverride::Auto};
 
     // Source's thread only.
+    InputFrameRate inputRate_{ticksPerSecond_};
     FramePtr reference_;          // the last Unique Frame: each frame is compared with it
     bool referenceShown_ = false; // override 30: false while that frame waits its turn
     uint32_t sinceEmitted_ = 2;   // captured frames since the last emitted one, counted up to 2

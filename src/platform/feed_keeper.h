@@ -10,11 +10,13 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "core/processor.h"
+#include "core/session_timer.h"
 #include "core/source.h"
 #include "core/unique_frames.h"
 #include "core/video_area_state.h"
@@ -27,7 +29,7 @@ class FeedKeeper {
 public:
     // Starts and stops `sound` with the picture; its audio settings are the caller's.
     // tolerance: the near-duplicate tolerance for Repeated Frames (core/unique_frames.h).
-    FeedKeeper(HWND window, Presenter& presenter, Sound& sound, double tolerance = kNearDuplicateTolerance);
+    FeedKeeper(HWND window, Presenter& presenter, Sound& sound, double tolerance, const std::wstring& settingsPath);
     ~FeedKeeper();
     FeedKeeper(const FeedKeeper&) = delete;
     FeedKeeper& operator=(const FeedKeeper&) = delete;
@@ -73,9 +75,16 @@ public:
     // It is only drawn into frames presented anyway, so it shows with the
     // next one and never causes a present of its own.
     void SetFpsCounter(bool on);
+    void SetHalfHourClock(bool enabled);
+    void SetHalfHourSession(bool enabled);
+    void SetShowSessionClock(bool enabled);
+    void RestartSessionTimer();
+    void ToggleSessionPause();
+    std::wstring DailyPlayTime();
 
 private:
     void Tick();
+    void UpdateDailyTime(bool save = false);
     void Apply(RecoveryActions actions);
     bool FallBackFrom(const SourceEvent& event);
     void DropUnofferedResolution();
@@ -85,10 +94,23 @@ private:
     void LogSignalProbe();
     void LogFrames();
     void LogTimedFrames();
-    void UpdateFpsCounter();
+    void UpdateOverlays(bool redrawClock = false);
+    void UpdateReminders();
     int64_t Now() const;
 
     HWND window_;
+    std::wstring dailyPath_;
+    std::map<int, uint64_t> dailyMs_;
+    int today_ = 0;
+    uint64_t dailySampleMs_ = 0, lastDailySaveMs_ = 0;
+    bool dailyDirty_ = false;
+    SessionTimer sessionTimer_{GetTickCount64()};
+    bool halfHourClock_ = true;
+    bool halfHourSession_ = false;
+    bool showSessionClock_ = false;
+    HalfHourReminder clockReminder_;
+    SessionReminder sessionReminder_;
+    std::optional<uint64_t> clockPulseMs_, sessionPulseMs_;
     Presenter& presenter_;
     std::unique_ptr<UniqueFrameProcessor> processor_;
     bool fpsCounter_ = false;

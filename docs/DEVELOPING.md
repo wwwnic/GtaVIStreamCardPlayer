@@ -58,6 +58,10 @@ Native-size and smaller pictures use the smooth path. The optional D3D11 shaders
 no AMF runtime. An `Upscale: FSR 1 on/off` transition logs the Feed and shown sizes.
 Compilation or resource failure logs the reason and falls back to smooth stretching.
 
+## Night mode
+
+Press N or select View > Night mode to step through off, low and high (remembered as `night_mode=off|low|high`; missing or unknown means off). It lifts the dark parts of the picture so night scenes read better; anything with a peak above 0.65 (display-encoded) is left exactly as it was, and black stays black. The curve (`platform/night_mode_shader.h`, strength 0 / 0.45 / 1 from `core/night_mode.h`) is prepended to every Presenter shader and called only by the last pass that writes the picture (Show, or RCAS with Sharp Upscale), so real and Generated Frames get the same look while Frame Generation's inputs stay untouched; the text overlay is drawn after it. The strength is constant buffer b1, one immutable buffer per choice; an unbound buffer reads 0, so a failed one shows the picture unchanged. Changing it never presents by itself: the feedback line (`Night mode low`) presents once, with the new look. Logs `Menu: Night mode ...`. The same curve is checked on the CPU in `tests/night_mode_test.cpp` (never darker, never out of order, never above 1). Started as the `prototype/shadow-boost` experiment (Shadow Boost on N).
+
 ## Lossless Scaling
 
 Use in-app Frame Generation or Lossless Scaling, never both: Lossless Scaling would count Generated Frames as real ones. The user's one-time setup guide is `docs/lossless-scaling-setup.md`, written in the user's vertical style (very short lines, one idea per line, no bullets); keep that style when editing it. What keeps the window a good target (ticket 10): the title is set once to exactly "GamePlayer" and never changed (no `SetWindowText`; debug numbers go to the log or the FPS counter, never the title); the exe is `GamePlayer.exe`; DXGI Alt+Enter is disabled and nothing calls `SetFullscreenState`; the Presenter presents only for a new Unique Frame, a resize, a device rebuild, or a text that appears or ends (the FPS counter never presents; the Frame rate override "60 fps (every frame)" passes Repeated Frames on too, so Lossless Scaling then sees 60); fullscreen uses `HWND_TOP`, never topmost, and hides the cursor after 2 s.
@@ -77,6 +81,7 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `colour.h`: the YUV to RGB numbers for a frame's colour range and matrix.
   - `generation_notice.h`: typed generation failure/fallback outcomes and an owned thread-safe mailbox for the window.
   - `presentation_info.h`: actual generation/upscale state and rolling successful-present counts for Shown; no refresh cap.
+  - `night_mode.h`: Night mode's choice (off, low, high), its strength and its word in the settings file.
   - `picture_fit.h`: where the 16:9 picture goes inside the Video Area, and whether Sharp Upscale is used for it.
   - `frame_schedule.h`: the timed sequence for one Unique Frame (when each Generated Frame and the Unique Frame are due, early drops, late skips, when not to generate).
   - `target_schedule.h`: Target (ADR 0004): which ladder frame each vsync shows, the nearest in time; never backwards; every Unique Frame itself shown; real frames only when the rate in use is not above the Game Rate (`RealFramesOnly`). Uses `FrameSchedule`'s arrival rules, nothing else of it.
@@ -97,6 +102,7 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
   - `presenter.*`: the `Presenter`. Owns the Direct3D 11 device, the flip-model swap chain, the shaders and its own presenting thread. Recreates the device if it is lost. Runs a `FrameGenerator`'s timed sequences when one is set (or, in Target, presents paced over the vsyncs), and the FSR 1 Sharp Upscale passes (`sharp_upscale_shader.h`). Text in the Video Area: `ShowText(place, text, durationMs)` from any thread (durationMs > 0 for brief feedback); `ShowPicture(false)` while a state message shows.
   - `frame_generator.*`: the `FrameGenerator` interface the Presenter asks for Generated Frames, and the developer-only repeat generator (`--frames-per-unique`).
   - `amf_generator.*`: Frame Generation 2x / 4x (and Target's x8 ladder, a third FRC) with AMD AMF FRC; starts each driver session on its own worker thread.
+  - `night_mode_shader.h`: Night mode's curve, prepended to every Presenter shader.
   - `sharp_upscale_shader.h`: the FSR 1 EASU and RCAS shaders (AMD, MIT; notice in the file and `third_party/fsr1/LICENSE.txt`).
   - `text_overlay.*`: draws those texts with Direct2D and DirectWrite into the back buffer.
   - `feed_keeper.*`: runs Source, Processor, Presenter and sound; follows `video_area_state.h`, restarts picture and sound together, reacts to device notifications and resume from sleep.

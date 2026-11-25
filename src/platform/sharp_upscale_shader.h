@@ -129,7 +129,7 @@ float4 Rcas(VertexOut input) : SV_Target {
     float3 hitMax = low < 1 ? (1.0 - max(high, e)) / (4.0 * low - 4.0) : -1.0;
     float3 lobeRgb = max(-hitMin, hitMax);
     float lobe = max(-0.1875, min(max(lobeRgb.r, max(lobeRgb.g, lobeRgb.b)), 0.0)) * exp2(-0.2);
-    return float4(saturate((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0)), 1);
+    return float4(BoostShadows(saturate((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0))), 1);  // Night mode
 }
 )hlsl";
 }  // namespace gp

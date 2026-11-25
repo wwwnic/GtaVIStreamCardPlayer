@@ -2,53 +2,61 @@
 
 #include "core/ladder_depth.h"
 
-using gp::LadderDepth;
 
 namespace {
 
 const int64_t kSecond = 1000000;  // the tests count in microseconds
 const int64_t k144 = kSecond / 144;
 
+// Capture and display normally process every frame in these pacing tests.
+struct InputAndDepth {
+    explicit InputAndDepth(int64_t frequency) : input(frequency), ladder(frequency) {}
+    gp::InputFrameRate input;
+    gp::LadderDepth ladder;
+
+    int Arrived(int64_t at, int64_t slot) { return ladder.Update(input.Arrived(at), slot); }
+};
+
 // Unique Frames at `fps` for `seconds`, starting at `from`; the depth after the last.
-int Feed(LadderDepth& depth, double fps, double seconds, int64_t& at, int64_t refresh = k144) {
+int Feed(InputAndDepth& depth, double fps, double seconds, int64_t& at, int64_t refresh = k144) {
     const int64_t interval = static_cast<int64_t>(kSecond / fps);
     int result = 0;
     for (int64_t end = at + static_cast<int64_t>(seconds * kSecond); at < end; at += interval)
-        result = depth.Arrived(at, false, refresh);
+        result = depth.Arrived(at, refresh);
     return result;
 }
 
 }  // namespace
 
 TEST_CASE("Ladder depth: x4 until a Game Rate is known") {
-    LadderDepth depth(kSecond);
-    CHECK(depth.Arrived(0, true, k144) == 4);
-    CHECK(depth.Arrived(kSecond / 30, false, k144) == 4);  // one interval is not yet a rate
+    InputAndDepth depth(kSecond);
+    CHECK(depth.Arrived(0, k144) == 4);
+    CHECK(depth.Arrived(kSecond / 30, k144) == 4);  // one interval is not yet a rate
 }
 
 TEST_CASE("Ladder depth at 144 Hz: 30 fps uses x8, 60 fps uses x4") {
-    LadderDepth thirty(kSecond);
+    InputAndDepth thirty(kSecond);
     int64_t at = 0;
     CHECK(Feed(thirty, 30, 1.0, at) == 8);
-    LadderDepth sixty(kSecond);
+    InputAndDepth sixty(kSecond);
     at = 0;
     CHECK(Feed(sixty, 60, 1.0, at) == 4);
 }
 
 TEST_CASE("Ladder depth thresholds at 144 Hz: about 51 fps and below x8, about 58 and above x4") {
-    LadderDepth low(kSecond);
+    InputAndDepth low(kSecond);
     int64_t at = 0;
     CHECK(Feed(low, 50, 1.0, at) == 8);  // 2.88 refreshes per Unique Frame
-    LadderDepth high(kSecond);
+    InputAndDepth high(kSecond);
     at = 0;
     CHECK(Feed(high, 59, 1.0, at) == 4);  // 2.44
-    LadderDepth between(kSecond);
+    InputAndDepth between(kSecond);
     at = 0;
     CHECK(Feed(between, 54, 1.0, at) == 4);  // 2.67: from x4 it stays x4
 }
 
 TEST_CASE("Ladder depth has hysteresis: between the thresholds it keeps what it had") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     CHECK(Feed(depth, 30, 1.0, at) == 8);
     CHECK(Feed(depth, 54, 2.0, at) == 8);  // 2.67: still x8
@@ -58,12 +66,12 @@ TEST_CASE("Ladder depth has hysteresis: between the thresholds it keeps what it 
 }
 
 TEST_CASE("Ladder depth does not flip on a steady but uneven Game Rate (33 / 50 ms gaps)") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     int changes = 0, last = 4;
     for (int i = 0; i < 200; i++) {
         at += (i % 2 ? 50000 : 33333);
-        const int now = depth.Arrived(at, false, k144);
+        const int now = depth.Arrived(at, k144);
         if (now != last) changes++;
         last = now;
     }
@@ -72,46 +80,46 @@ TEST_CASE("Ladder depth does not flip on a steady but uneven Game Rate (33 / 50 
 }
 
 TEST_CASE("Ladder depth follows the recent second, not the whole run") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     Feed(depth, 60, 10.0, at);
     CHECK(Feed(depth, 30, 1.2, at) == 8);  // ten seconds of 60 do not hold it back
 }
 
 TEST_CASE("Ladder depth follows the rate in use: 30 fps on a 60 Hz monitor is x4") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     CHECK(Feed(depth, 30, 1.0, at, kSecond / 60) == 4);  // 2 refreshes per Unique Frame
     CHECK(Feed(depth, 30, 1.0, at, kSecond / 144) == 8);
 }
 
 TEST_CASE("Ladder depth after a pause keeps its depth and measures again") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     CHECK(Feed(depth, 30, 1.0, at) == 8);
     at += 2 * kSecond;  // a still picture
-    CHECK(depth.Arrived(at, true, k144) == 8);  // x8 resumes at once
+    CHECK(depth.Arrived(at, k144) == 8);  // x8 resumes at once
     at += kSecond / 30;
-    CHECK(depth.Arrived(at, false, k144) == 8);
+    CHECK(depth.Arrived(at, k144) == 8);
     CHECK(Feed(depth, 60, 1.0, at) == 4);  // the gap itself is not counted as a slow rate
 }
 
 TEST_CASE("Ladder depth through a short hitch: the Game Rate stays known, the depth stays") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     CHECK(Feed(depth, 60, 2.0, at) == 4);
     at += 250000;  // a 250 ms hitch: the arrival rules forget the earlier frame
-    CHECK(depth.Arrived(at, true, k144) == 4);
-    CHECK(depth.GameRate() == doctest::Approx(60).epsilon(0.02));  // the gap is not an interval
+    CHECK(depth.Arrived(at, k144) == 4);
+    CHECK(depth.ladder.GameRate() == doctest::Approx(60).epsilon(0.02));  // the gap is not an interval
     at += kSecond / 60;
-    CHECK(depth.Arrived(at, false, k144) == 4);
-    CHECK(depth.GameRate() == doctest::Approx(60).epsilon(0.02));
-    LadderDepth thirty(kSecond);
+    CHECK(depth.Arrived(at, k144) == 4);
+    CHECK(depth.ladder.GameRate() == doctest::Approx(60).epsilon(0.02));
+    InputAndDepth thirty(kSecond);
     at = 0;
     CHECK(Feed(thirty, 30, 2.0, at) == 8);
     at += 250000;
-    CHECK(thirty.Arrived(at, true, k144) == 8);
-    CHECK(thirty.GameRate() == doctest::Approx(30).epsilon(0.02));
+    CHECK(thirty.Arrived(at, k144) == 8);
+    CHECK(thirty.ladder.GameRate() == doctest::Approx(30).epsilon(0.02));
 }
 
 TEST_CASE("x8 all or fall back: a missing eighth gives the x4 ladder, never a partial x8") {
@@ -205,10 +213,11 @@ TEST_CASE("Target x8 at 30 fps, generating 5.4 ms after the present: every Uniqu
 }
 
 TEST_CASE("Ladder depth: Reset starts over at x4") {
-    LadderDepth depth(kSecond);
+    InputAndDepth depth(kSecond);
     int64_t at = 0;
     CHECK(Feed(depth, 30, 1.0, at) == 8);
-    depth.Reset();
-    CHECK(depth.Depth() == 4);
-    CHECK(depth.Arrived(at, true, k144) == 4);
+    depth.input.Reset();
+    depth.ladder.Reset();
+    CHECK(depth.ladder.Depth() == 4);
+    CHECK(depth.Arrived(at, k144) == 4);
 }

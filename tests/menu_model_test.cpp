@@ -402,3 +402,18 @@ TEST_CASE("About reports the actual driver failure and preserves fallback to 2x"
     info.presentation.runningFactor = 0;
     CHECK(Contains(gp::AboutText(info), L"Frame Generation: off (4x unavailable: FRC Init AMF_RESULT 13)"));
 }
+
+TEST_CASE("View > Night mode shows the level, checked while on, and N is in the hotkeys") {
+    gp::ViewerSettings settings;
+    auto view = gp::ViewItems(settings, false);
+    CHECK(view.nightMode.label == L"Night mode\tN");
+    CHECK_FALSE(view.nightMode.checked);
+    CHECK(view.nightMode.enabled);
+    settings.nightMode = gp::NightMode::Low;
+    view = gp::ViewItems(settings, false);
+    CHECK(view.nightMode.label == L"Night mode (low)\tN");
+    CHECK(view.nightMode.checked);
+    settings.nightMode = gp::NightMode::High;
+    CHECK(gp::ViewItems(settings, true).nightMode.label == L"Night mode (high)\tN");
+    CHECK(Contains(gp::HotkeysText(), L"N\tNight mode"));
+}

@@ -2,6 +2,7 @@
 // The drawing itself is the Presenter's (Presenter::ShowText).
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace gp {
@@ -12,6 +13,8 @@ enum class TextPlace {
     Top,     // brief feedback, e.g. volume or Audio Delay (ticket 07)
     Bottom,  // a small lasting note, e.g. "no sound"
     TopLeft, // the FPS counter (ticket 04): small, left-aligned in the corner
+    TopRight, // local clock, elapsed session time and their reminders
+    SessionPause, // persistent reminder below the centre of the picture
 };
 
 // One line saying what is wrong, optionally a smaller line saying what to do.
@@ -19,6 +22,7 @@ enum class TextPlace {
 struct VideoAreaText {
     std::wstring headline;
     std::wstring detail;
+    float backingOpacity = 0.6f;
     bool Empty() const { return headline.empty() && detail.empty(); }
     bool operator==(const VideoAreaText&) const = default;
 };
@@ -34,5 +38,28 @@ struct TextSizes {
 };
 
 TextSizes SizeText(TextPlace place, int areaWidth, int areaHeight);
+std::wstring SessionTimeText(const std::wstring& clock, uint64_t elapsedMinutes);
+std::wstring DurationText(uint64_t minutes);
+
+// Observe local wall-clock minutes even while the game is in the background.
+// A missed reminder is shown once when the game is visible again.
+class HalfHourReminder {
+public:
+    bool Due(int minuteOfDay, bool canShow);
+
+private:
+    int previousMinute_ = -1;
+    bool pending_ = false;
+};
+
+class SessionReminder {
+public:
+    // Enabling mid-session starts with the next multiple of 30 minutes.
+    void Reset(uint64_t elapsedMinutes) { delivered_ = elapsedMinutes / 30; }
+    bool Due(uint64_t elapsedMinutes, bool canShow);
+
+private:
+    uint64_t delivered_ = 0;
+};
 
 }  // namespace gp

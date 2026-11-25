@@ -88,7 +88,7 @@ struct TextOverlay::Impl {
 
     void DrawOne(TextPlace place, const VideoAreaText& text, uint32_t width, uint32_t height) {
         const TextSizes sizes = SizeText(place, static_cast<int>(width), static_cast<int>(height));
-        const bool corner = place == TextPlace::TopLeft;
+        const bool corner = place == TextPlace::TopLeft || place == TextPlace::TopRight;
         KeptLayout* keep = kept[static_cast<size_t>(place)];
         IDWriteTextLayout* headline = Layout(keep[0], text.headline, sizes.headline, true, sizes.maxWidth, corner);
         IDWriteTextLayout* detail = Layout(keep[1], text.detail, sizes.detail, false, sizes.maxWidth, corner);
@@ -102,11 +102,13 @@ struct TextOverlay::Impl {
         float top = 0;
         switch (place) {
         case TextPlace::Centre: top = (static_cast<float>(height) - blockHeight) / 2; break;
+        case TextPlace::SessionPause: top = height * 0.72f - blockHeight / 2; break;
         case TextPlace::Top:
+        case TextPlace::TopRight:
         case TextPlace::TopLeft: top = sizes.margin; break;
         case TextPlace::Bottom: top = static_cast<float>(height) - sizes.margin - blockHeight; break;
         }
-        const float left = sizes.margin;
+        const float left = place == TextPlace::TopRight ? width - sizes.margin - blockWidth : sizes.margin;
         // A dark rounded backing, so the text reads over a bright picture too.
         const float pad = sizes.detail * 0.6f;
         const float centreX = corner ? left + blockWidth / 2 : static_cast<float>(width) / 2;
@@ -114,6 +116,7 @@ struct TextOverlay::Impl {
             D2D1::RectF(centreX - blockWidth / 2 - pad, top - pad / 2, centreX + blockWidth / 2 + pad,
                         top + blockHeight + pad / 2),
             pad / 2, pad / 2};
+        backingBrush->SetOpacity(text.backingOpacity);
         context->FillRoundedRectangle(backing, backingBrush.Get());
         if (headline) context->DrawTextLayout(D2D1::Point2F(left, top), headline, headlineBrush.Get());
         if (detail) {
@@ -141,7 +144,7 @@ bool TextOverlay::Attach(ID3D11Device* device) {
     if (SUCCEEDED(hr)) hr = impl->device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &impl->context);
     if (SUCCEEDED(hr)) hr = impl->context->CreateSolidColorBrush(D2D1::ColorF(0.93f, 0.93f, 0.93f), &impl->headlineBrush);
     if (SUCCEEDED(hr)) hr = impl->context->CreateSolidColorBrush(D2D1::ColorF(0.72f, 0.72f, 0.72f), &impl->detailBrush);
-    if (SUCCEEDED(hr)) hr = impl->context->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0.6f), &impl->backingBrush);
+    if (SUCCEEDED(hr)) hr = impl->context->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1.0f), &impl->backingBrush);
     if (FAILED(hr)) {
         Log("Text: Direct2D/DirectWrite not available hr=0x%08lX; no text in the Video Area",
             static_cast<unsigned long>(hr));

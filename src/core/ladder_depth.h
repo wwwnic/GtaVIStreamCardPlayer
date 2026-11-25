@@ -19,25 +19,14 @@ namespace gp {
 inline constexpr double kEighthsAbove = 2.8;   // refreshes per Unique Frame
 inline constexpr double kQuartersBelow = 2.5;
 
-class LadderDepth {
+// Measures the frames emitted by the Processor, before pending frames can be
+// replaced. Repeated pictures removed by the active override never enter here.
+class InputFrameRate {
 public:
-    explicit LadderDepth(int64_t ticksPerSecond);
-
-    // A Unique Frame arrived (forgetEarlier: the arrival rules forgot the
-    // one before, a start, a pause, another size). presentSlotTicks: the
-    // time between presents at the rate in use. Answers the depth for this
-    // Unique Frame: 4 or 8. The rate is measured from the intervals of about
-    // the last second; the gap before a forgetting arrival is not one of
-    // them, so a short hitch changes nothing. A pause longer than that keeps
-    // the depth (x8 resumes at once) and measures the rate again; until
-    // about half a second is measured, the depth does not change.
-    int Arrived(int64_t arrivalTicks, bool forgetEarlier, int64_t presentSlotTicks);
-
-    int Depth() const { return depth_; }
-    // The recent Game Rate, 0 while not known.
-    double GameRate() const;
-
-    // Starts over at x4 (generation stopped).
+    explicit InputFrameRate(int64_t ticksPerSecond) : ticksPerSecond_(ticksPerSecond) {}
+    // Arrival timestamps are in capture-clock ticks. A pause is excluded from
+    // the one-second window. Returns 0 until half a second has been measured.
+    double Arrived(int64_t arrivalTicks);
     void Reset();
 
 private:
@@ -49,6 +38,19 @@ private:
     std::deque<Interval> intervals_;  // the last second's
     int64_t measuredTicks_ = 0;       // their sum
     std::optional<int64_t> last_;     // the latest arrival
+};
+
+class LadderDepth {
+public:
+    explicit LadderDepth(int64_t ticksPerSecond) : ticksPerSecond_(ticksPerSecond) {}
+    int Update(double inputRate, int64_t presentSlotTicks);
+    int Depth() const { return depth_; }
+    double GameRate() const { return gameRate_; }
+    void Reset() { depth_ = 4; gameRate_ = 0; }
+
+private:
+    int64_t ticksPerSecond_;
+    double gameRate_ = 0;
     int depth_ = 4;
 };
 

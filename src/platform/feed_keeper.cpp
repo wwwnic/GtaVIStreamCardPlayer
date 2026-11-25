@@ -1,6 +1,10 @@
 #include "platform/feed_keeper.h"
 
 #include <dbt.h>
+#include <algorithm>
+#include <cmath>
+#include <sstream>
+#include "platform/settings_store.h"
 
 #include "platform/log.h"
 #include "platform/mf_source.h"
@@ -25,6 +29,12 @@ WPARAM Pack(uint32_t generation, uint32_t kind, SourceStage stage) {
 
 int64_t TickNow() { return static_cast<int64_t>(GetTickCount64()); }
 
+std::wstring LocalClockText(const SYSTEMTIME* localTime = nullptr) {
+    wchar_t clock[80] = {};
+    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, localTime, nullptr, clock, ARRAYSIZE(clock));
+    return clock;
+}
+
 int64_t QpcNow() {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
@@ -46,13 +56,61 @@ void RaiseTo(std::atomic<int64_t>& worst, int64_t value) {
 
 }  // namespace
 
-FeedKeeper::FeedKeeper(HWND window, Presenter& presenter, Sound& sound, double tolerance)
+FeedKeeper::FeedKeeper(HWND window, Presenter& presenter, Sound& sound, double tolerance, const std::wstring& settingsPath)
     : window_(window),
+      dailyPath_(settingsPath.empty() ? L"" : settingsPath + L".playtime"),
       presenter_(presenter),
       processor_(std::make_unique<UniqueFrameProcessor>(QpcFrequency(), tolerance)),
       source_(MakeMediaFoundationSource()),
       sound_(sound),
-      machine_(TickNow()) {}
+      machine_(TickNow()) {
+    std::istringstream saved(dailyPath_.empty() ? "" : ReadSettingsFile(dailyPath_));
+    int day;
+    uint64_t ms;
+    while (saved >> day >> ms) dailyMs_[day] = ms;
+    UpdateDailyTime();
+}
+
+void FeedKeeper::UpdateDailyTime(bool save) {
+    SYSTEMTIME local;
+    GetLocalTime(&local);
+    const int day = local.wYear * 10000 + local.wMonth * 100 + local.wDay;
+    ULONGLONG awakeTicks = 0;
+    QueryUnbiasedInterruptTime(&awakeTicks);
+    const uint64_t now = awakeTicks / 10000;
+    if (today_ && !sessionTimer_.Paused() && now > dailySampleMs_) {
+        const uint64_t delta = now - dailySampleMs_;
+        const uint64_t sinceMidnight = ((local.wHour * 60ULL + local.wMinute) * 60 + local.wSecond) * 1000 + local.wMilliseconds;
+        const uint64_t currentDay = day == today_ ? delta : std::min(delta, sinceMidnight);
+        dailyMs_[day] += currentDay;
+        if (currentDay < delta) dailyMs_[today_] += delta - currentDay;
+        dailyDirty_ = true;
+    }
+    if (!today_) lastDailySaveMs_ = now;
+    today_ = day;
+    dailySampleMs_ = now;
+    if (!dailyDirty_ || dailyPath_.empty() || (!save && now - lastDailySaveMs_ < 60000)) return;
+    lastDailySaveMs_ = now;
+    while (dailyMs_.size() > 365) dailyMs_.erase(dailyMs_.begin());
+    std::ostringstream data;
+    for (const auto& [date, total] : dailyMs_) data << date << ' ' << total << '\n';
+    unsigned long error = 0;
+    dailyDirty_ = !WriteSettingsFile(dailyPath_, data.str(), error);
+    if (dailyDirty_) Log("Daily play time: save failed (error %lu)", error);
+}
+
+std::wstring FeedKeeper::DailyPlayTime() {
+    UpdateDailyTime();
+    std::wstring text;
+    int rows = 0;
+    for (auto it = dailyMs_.rbegin(); it != dailyMs_.rend() && rows < 14; ++it, ++rows) {
+        const auto date = std::to_wstring(it->first);
+        if (date.size() != 8) continue;
+        if (!text.empty()) text += L"\n";
+        text += date.substr(0, 4) + L"-" + date.substr(4, 2) + L"-" + date.substr(6) + L"    " + DurationText(it->second / 60000);
+    }
+    return text.empty() ? L"Today    0m" : text;
+}
 
 FeedKeeper::~FeedKeeper() { Stop(); }
 
@@ -81,6 +139,7 @@ void FeedKeeper::Start() {
 
 void FeedKeeper::Stop() {
     if (!running_) return;
+    UpdateDailyTime(true);
     running_ = false;
     KillTimer(window_, kTickTimer);
     if (deviceNotification_) UnregisterDeviceNotification(deviceNotification_);
@@ -143,6 +202,7 @@ bool FeedKeeper::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESU
 }
 
 void FeedKeeper::Tick() {
+    UpdateDailyTime();
     const int64_t now = Now();
     if (frameSinceTick_.exchange(false)) Apply(machine_.FramesArrived(now));
     if (soundRunning_ && !sound_.Capturing()) {
@@ -151,11 +211,12 @@ void FeedKeeper::Tick() {
     }
     Apply(machine_.Tick(now));
     ShowState();
+    UpdateReminders();
     if (++ticks_ % (1000 / kTickMs) == 0) {
         LogSignalProbe();
         LogFrames();
         LogTimedFrames();
-        UpdateFpsCounter();
+        UpdateOverlays();
     }
 }
 
@@ -219,17 +280,96 @@ FrameRates FeedKeeper::Rates() { return processor_->RatesAt(QpcNow()); }
 void FeedKeeper::SetFpsCounter(bool on) {
     fpsCounter_ = on;
     Log("Frames: FPS counter %s", fpsCounter_ ? "on" : "off");
-    UpdateFpsCounter();
+    UpdateOverlays();
 }
 
-// Never presents by itself: Lossless Scaling would count it as a game frame.
-// Only while Playing: over a state message (Loading, No signal) it would be a
-// number from a Feed that is not there.
-void FeedKeeper::UpdateFpsCounter() {
-    const bool show = fpsCounter_ && machine_.State() == VideoAreaState::Playing;
-    const auto info = presenter_.Presentation();
-    presenter_.ShowTextWithNextFrame(TextPlace::TopLeft,
-                                     show ? VideoAreaText{FpsCounterText(Rates(), info.shownRate, info.runningFactor, info.realRate), L""} : VideoAreaText{});
+void FeedKeeper::RestartSessionTimer() {
+    UpdateDailyTime();
+    sessionTimer_ = SessionTimer(GetTickCount64());
+    presenter_.ShowText(TextPlace::SessionPause, {});
+    sessionReminder_.Reset(0);
+    sessionPulseMs_.reset();
+    Log("Menu: session timer restarted");
+    UpdateReminders();
+    UpdateOverlays(true);
+}
+
+void FeedKeeper::SetShowSessionClock(bool enabled) {
+    showSessionClock_ = enabled;
+    UpdateOverlays(true);
+}
+
+void FeedKeeper::ToggleSessionPause() {
+    UpdateDailyTime(true);
+    sessionTimer_.TogglePause(GetTickCount64());
+    presenter_.ShowText(TextPlace::SessionPause, sessionTimer_.Paused()
+        ? VideoAreaText{L"Session paused", L"Press P to resume"} : VideoAreaText{});
+    UpdateReminders();
+    UpdateOverlays(true);
+}
+
+void FeedKeeper::SetHalfHourClock(bool enabled) {
+    halfHourClock_ = enabled;
+    if (!enabled) clockReminder_ = {};
+    UpdateReminders();
+}
+
+void FeedKeeper::SetHalfHourSession(bool enabled) {
+    halfHourSession_ = enabled;
+    sessionReminder_.Reset(sessionTimer_.ElapsedMs(GetTickCount64()) / 60000);
+    UpdateReminders();
+}
+
+void FeedKeeper::UpdateReminders() {
+    const bool wasShowing = clockPulseMs_ || sessionPulseMs_;
+    if (!halfHourClock_ && !halfHourSession_ && !wasShowing) return;
+    SYSTEMTIME local;
+    GetLocalTime(&local);
+    const bool visible = machine_.State() == VideoAreaState::Playing && GetForegroundWindow() == window_ &&
+                         !IsIconic(window_);
+    const uint64_t now = GetTickCount64();
+    const uint64_t minutes = sessionTimer_.ElapsedMs(now) / 60000;
+
+    const auto updatePulse = [&](std::optional<uint64_t>& start, bool enabled, bool due) {
+        if (due) start = now;
+        if (!enabled || !visible || (start && now - *start >= 6000)) start.reset();
+    };
+    updatePulse(clockPulseMs_, halfHourClock_,
+                halfHourClock_ && clockReminder_.Due(local.wHour * 60 + local.wMinute, visible));
+    const bool sessionAlerts = halfHourSession_ && !sessionTimer_.Paused();
+    updatePulse(sessionPulseMs_, sessionAlerts, sessionAlerts && sessionReminder_.Due(minutes, visible));
+    if (!clockPulseMs_ && !sessionPulseMs_) {
+        if (wasShowing) UpdateOverlays();  // with the next frame: no present of its own
+        return;
+    }
+    // When reminders overlap, show both values in the same pulsing overlay.
+    const auto clock = clockPulseMs_ ? LocalClockText(&local) : std::wstring{};
+    const auto headline = sessionPulseMs_ ? SessionTimeText(clock, minutes) : clock;
+    const uint64_t elapsed = now - std::max(clockPulseMs_.value_or(0), sessionPulseMs_.value_or(0));
+    const float opacity = 0.65f - 0.20f * std::cos(static_cast<float>(elapsed % 2000) * 0.00314159265f);
+    // Drawn into frames presented anyway, like the FPS counter: the fade must
+    // never present by itself (Lossless Scaling would count it as a game
+    // frame, and it would break 2x / 4x timing). It animates at the game's
+    // rate and holds still on a still picture.
+    presenter_.ShowTextWithNextFrame(TextPlace::TopRight, {headline, L"", opacity});
+}
+
+void FeedKeeper::UpdateOverlays(bool redrawClock) {
+    const bool playing = machine_.State() == VideoAreaState::Playing;
+    VideoAreaText fps;
+    if (playing && fpsCounter_) {
+        const auto info = presenter_.Presentation();
+        fps.headline = FpsCounterText(Rates(), info.shownRate, info.runningFactor, info.realRate);
+    }
+    presenter_.ShowTextWithNextFrame(TextPlace::TopLeft, std::move(fps));
+    if (clockPulseMs_ || sessionPulseMs_) return;
+    VideoAreaText session;
+    if (playing && showSessionClock_) {
+        session.headline = SessionTimeText(LocalClockText(), sessionTimer_.ElapsedMs(GetTickCount64()) / 60000);
+        session.detail = L"Today " + DurationText(dailyMs_[today_] / 60000);
+    }
+    if (redrawClock) presenter_.ShowText(TextPlace::TopRight, std::move(session));
+    else presenter_.ShowTextWithNextFrame(TextPlace::TopRight, std::move(session));
 }
 
 // Once a second: enough to tell from the log alone whether a game's Repeated
@@ -252,7 +392,7 @@ void FeedKeeper::LogFrames() {
     Log("Frames: arrived %llu, unique %llu, repeated exact %llu near %llu, presented %llu, dropped %llu; "
         "game rate %d, presented rate %d, signal rate %d; override %s, tolerance %.4f; near max %.5f, close unique %u min %.5f; "
         "before present ms unique avg %.3f worst %.3f, repeated avg %.3f worst %.3f; after present worst %.3f; "
-        "FPS counter %s",
+        "real presents/s %d; FPS counter %s",
         static_cast<unsigned long long>(now.arrived - was.arrived),
         static_cast<unsigned long long>(now.unique - was.unique),
         static_cast<unsigned long long>(now.repeatedExact - was.repeatedExact),
@@ -262,7 +402,7 @@ void FeedKeeper::LogFrames() {
         rates.signalRate, NameOf(processor_->Override()), processor_->Tolerance(), close.nearShareMax, close.closeUnique,
         close.closeUnique ? close.closeShareMin : 0.0, uniqueCount ? QpcToMs(uniqueTicks) / uniqueCount : 0.0,
         QpcToMs(uniqueWorst), repeatCount ? QpcToMs(repeatTicks) / repeatCount : 0.0, QpcToMs(repeatWorst), QpcToMs(afterWorst),
-        !fpsCounter_ ? "off" : !rates.warm ? "warming up" : ("\"" + counter + "\"").c_str());
+        presentation.realRate, !fpsCounter_ ? "off" : !rates.warm ? "warming up" : ("\"" + counter + "\"").c_str());
     loggedTotals_ = now;
 }
 
@@ -294,7 +434,7 @@ void FeedKeeper::RestartFeed() {
     processor_->Reset();  // the new Source's first frame is always shown
     const uint32_t generation = ++generation_;
     machine_.FeedRestarted(began);
-    UpdateFpsCounter();  // blank before the new Source's first frame, not the old Source's number
+    UpdateOverlays();  // blank before the new Source's first frame, not the old Source's number
     firstFrameWanted_ = true;
     HWND window = window_;
     source_->Start(
@@ -353,7 +493,7 @@ void FeedKeeper::ShowState() {
         }
         shown_ = state;
         shownFailure_ = failure;
-        UpdateFpsCounter();  // first: the present for the state change draws it (or no longer does)
+        UpdateOverlays();  // first: the present for the state change draws it (or no longer does)
         presenter_.ShowText(TextPlace::Centre, MessageFor(state, failure));
         presenter_.ShowPicture(state == VideoAreaState::Playing);
     }

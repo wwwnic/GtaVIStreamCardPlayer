@@ -94,6 +94,10 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     const bool generating = available && settings.generation != GenerationFactor::Off;
     const std::string factor = GenerationName(settings.generation);
     menu.sharpUpscale = {L"Sharp upscale\tU", settings.sharpUpscale};
+    menu.nightMode = {settings.nightMode == NightMode::Low    ? L"Night mode (low)\tN"
+                      : settings.nightMode == NightMode::High ? L"Night mode (high)\tN"
+                                                              : L"Night mode\tN",
+                      settings.nightMode != NightMode::Off};
     menu.generation = {L"Frame generation " + std::wstring(factor.begin(), factor.end()) + L"\tG", generating, available};
     if (availability == GenerationAvailability::MissingRuntime)
         menu.generation.label = L"Frame generation (needs an AMD graphics card)\tG";
@@ -103,6 +107,9 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     const bool target = generating && settings.generation == GenerationFactor::Target;
     menu.vsync = {L"V-sync", settings.vsync || target, !generating};
     menu.fpsCounter = {L"FPS counter\tF", settings.fpsCounter, true};
+    menu.halfHourClock = {L"Clock reminder at :00 and :30", settings.halfHourClock, true};
+    menu.halfHourSession = {L"Session reminder every 30 minutes", settings.halfHourSession, true};
+    menu.showSessionClock = {L"Show clock and session time\tC", settings.showSessionClock, true};
     return menu;
 }
 
@@ -113,8 +120,11 @@ std::wstring HotkeysText() {
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
            L"U\tSharp upscale\n"
+           L"N\tNight mode off / low / high\n"
            L"G\tFrame generation off / 2x / 4x / Target\n"
-           L"F\tFPS counter (frames shown per second)\n"
+           L"F\tFPS counter\n"
+           L"C\tShow clock and session time\n"
+           L"P\tPause or resume the session timer\n"
            L"\nAlt opens the menu (windowed only).";
 }
 

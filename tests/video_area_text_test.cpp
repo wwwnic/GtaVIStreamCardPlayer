@@ -4,6 +4,7 @@
 
 #include "core/video_area_state.h"
 #include "core/video_area_text.h"
+#include "core/session_timer.h"
 
 using gp::MessageFor;
 using gp::SizeText;
@@ -20,6 +21,69 @@ bool Contains(const std::wstring& text, const wchar_t* part) { return text.find(
 
 TEST_CASE("Playing shows no message") {
     CHECK(MessageFor(VideoAreaState::Playing, {}).Empty());
+}
+
+TEST_CASE("session time shows local time and whole minutes since launch across hour and day boundaries") {
+    CHECK(gp::SessionTimeText(L"20:42", 0) == L"20:42 · Session 0m");
+    CHECK(gp::SessionTimeText(L"12:00 AM", 60) == L"12:00 AM · Session 1h 0m");
+    CHECK(gp::SessionTimeText(L"08:42", 1514) == L"08:42 · Session 25h 14m");
+}
+
+TEST_CASE("clock reminders follow local half hours even five minutes into play") {
+    gp::HalfHourReminder clock;
+    CHECK_FALSE(clock.Due(17 * 60 + 55, true));
+    CHECK(clock.Due(18 * 60, true));
+    CHECK_FALSE(clock.Due(18 * 60, true));
+    CHECK_FALSE(clock.Due(18 * 60 + 29, true));
+    CHECK(clock.Due(18 * 60 + 30, true));
+}
+
+TEST_CASE("elapsed session reminders follow the session start independently of the local clock") {
+    gp::SessionReminder session;
+    gp::HalfHourReminder clock;
+    CHECK_FALSE(clock.Due(17 * 60 + 55, true));
+    CHECK(clock.Due(18 * 60, true));
+    CHECK_FALSE(session.Due(5, true));
+    CHECK_FALSE(clock.Due(18 * 60 + 25, true));
+    CHECK(session.Due(30, true));
+    CHECK_FALSE(session.Due(30, true));
+    CHECK_FALSE(session.Due(60, false));
+    CHECK(session.Due(92, true));
+    CHECK_FALSE(session.Due(92, true));
+    session.Reset(0);
+    CHECK_FALSE(session.Due(0, true));
+    CHECK(session.Due(30, true));
+    session.Reset(100);  // switched on later in the session
+    CHECK_FALSE(session.Due(100, true));
+    CHECK(session.Due(120, true));
+}
+
+TEST_CASE("pausing preserves partial minutes and defers the next session reminder until play resumes") {
+    constexpr uint64_t minute = 60000;
+    gp::SessionTimer timer(100);
+    gp::SessionReminder reminders;
+    const uint64_t justBeforeReminder = 100 + 30 * minute - 1;
+    timer.TogglePause(justBeforeReminder);
+    CHECK(timer.Paused());
+    const uint64_t resume = justBeforeReminder + 90 * minute;
+    CHECK(timer.ElapsedMs(resume) == 30 * minute - 1);
+    CHECK_FALSE(reminders.Due(timer.ElapsedMs(resume) / minute, true));
+    timer.TogglePause(resume);
+    CHECK_FALSE(timer.Paused());
+    CHECK(reminders.Due(timer.ElapsedMs(resume + 1) / minute, true));
+    timer.TogglePause(resume + 1000);
+    timer.TogglePause(resume + 2000);
+    CHECK(timer.ElapsedMs(resume + 2000) == 30 * minute + 999);
+}
+
+TEST_CASE("half-hour reminders missed in the background coalesce and survive midnight") {
+    gp::HalfHourReminder clock;
+    CHECK_FALSE(clock.Due(23 * 60 + 29, false));
+    CHECK_FALSE(clock.Due(23 * 60 + 30, false));
+    CHECK_FALSE(clock.Due(1, false));  // a delayed timer tick after midnight
+    CHECK(clock.Due(2, true));
+    CHECK_FALSE(clock.Due(2, true));
+    CHECK_FALSE(clock.Due(3, true));
 }
 
 TEST_CASE("every other state has a one-line message") {

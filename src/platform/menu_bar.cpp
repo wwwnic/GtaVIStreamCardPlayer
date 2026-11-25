@@ -87,8 +87,15 @@ MenuBar::MenuBar() {
     for (UINT i = 0; i < targets.size(); i++) Append(targetRate_, TargetRateId(i, targets.size()), targets[i], true);
     AddPopup(view_, targetRate_, L"&Target rate");
     Append(view_, kMenuSharpUpscale, view.sharpUpscale, false);
+    Append(view_, kMenuNightMode, view.nightMode, false);
     Append(view_, kMenuVsync, view.vsync, false);
     Append(view_, kMenuFpsCounter, view.fpsCounter, false);
+    Append(view_, kMenuShowSessionClock, view.showSessionClock, false);
+    Append(view_, kMenuHalfHourClock, view.halfHourClock, false);
+    Append(view_, kMenuHalfHourSession, view.halfHourSession, false);
+    AppendMenuW(view_, MF_SEPARATOR, 0, nullptr);
+    Append(view_, kMenuRestartSessionTimer, {L"Restart session timer…"}, false);
+    Append(view_, kMenuDailyPlayTime, {L"Daily play time…"}, false);
 
     Append(help_, kMenuHotkeys, {L"&Hotkeys"}, false);
     Append(help_, kMenuAbout, {L"&About GamePlayer"}, false);
@@ -133,8 +140,12 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuAlwaysOnTop, view.alwaysOnTop);
     Update(view_, kMenuGeneration, view.generation);
     Update(view_, kMenuSharpUpscale, view.sharpUpscale);
+    Update(view_, kMenuNightMode, view.nightMode);
     Update(view_, kMenuVsync, view.vsync);
     Update(view_, kMenuFpsCounter, view.fpsCounter);
+    Update(view_, kMenuHalfHourClock, view.halfHourClock);
+    Update(view_, kMenuHalfHourSession, view.halfHourSession);
+    Update(view_, kMenuShowSessionClock, view.showSessionClock);
     const std::vector<MenuItem> targets = TargetRateItems(state.settings.targetRate, state.settings.customTargetRate, state.monitorRefresh);
     for (size_t i = 0; i < targets.size(); i++) Update(targetRate_, TargetRateId(i, targets.size()), targets[i]);
 }

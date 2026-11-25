@@ -96,6 +96,7 @@ add_executable(gameplayer_tests
     tests/window_shape_test.cpp
     tests/menu_model_test.cpp
     tests/settings_file_test.cpp
+    tests/night_mode_test.cpp
 )
 target_include_directories(gameplayer_tests PRIVATE third_party/doctest)
 target_link_libraries(gameplayer_tests PRIVATE gameplayer_core)
