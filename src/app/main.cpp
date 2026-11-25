@@ -149,11 +149,14 @@ void ApplyGeneration(App& app) {
 }
 
 void ToggleUpscale(App& app, bool repeated) {
-    if (!gp::ToggleSharpUpscale(app.settings, repeated)) return;
+    const bool videoSrAvailable = app.generationAvailability != gp::GenerationAvailability::MissingRuntime;
+    if (!gp::ToggleSharpUpscale(app.settings, repeated, videoSrAvailable)) return;
     app.remembered.sharpUpscale = app.settings.sharpUpscale;
-    gp::Log("Menu: Sharp upscale %s", app.settings.sharpUpscale ? "on" : "off");
-    app.presenter.SetSharpUpscale(app.settings.sharpUpscale);
-    app.feedback.Show(app.settings.sharpUpscale ? "Sharp upscale on" : "Sharp upscale off");
+    app.remembered.videoSr = app.settings.videoSr;
+    const char* line = gp::SharpUpscaleLine(app.settings);
+    gp::Log("Menu: %s", line);
+    app.presenter.SetSharpUpscale(app.settings.sharpUpscale, app.settings.videoSr);
+    app.feedback.Show(line);
 }
 
 // N and View > Night mode: off, low, high. No present of its own (the
@@ -201,7 +204,7 @@ void ApplyAllSettings(App& app) {
         app.sound.SetAudio(s.audio);  // all three in one step, one log line
     }
     app.feed.SetGameRateOverride(s.frameRate);  // logs the setting
-    app.presenter.SetSharpUpscale(s.sharpUpscale);
+    app.presenter.SetSharpUpscale(s.sharpUpscale, s.videoSr);
     app.feed.SetNightMode(s.nightMode);
     if (s.nightMode != gp::NightMode::Off) gp::Log("Menu: Night mode %s", gp::NightModeWord(s.nightMode));
     app.presenter.SetVsync(s.vsync);

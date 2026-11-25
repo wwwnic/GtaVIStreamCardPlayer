@@ -134,7 +134,10 @@ struct Session {
         if (!frc) { failure = "no FRC component"; return; }
         if (!Check("engine", frc->SetProperty(AMF_FRC_ENGINE_TYPE, amf_int64(FRC_ENGINE_DX11))) ||
             !Check("mode", frc->SetProperty(AMF_FRC_MODE, amf_int64(FRC_ONLY_INTERPOLATED))) ||
-            !Check("profile", frc->SetProperty(AMF_FRC_PROFILE, amf_int64(FRC_PROFILE_HIGH))) ||
+            // SUPER, not HIGH: on 1080p console capture HIGH loses fast camera
+            // pans and falls back to a blend (double image). Costs a little GPU.
+            !Check("profile", frc->SetProperty(AMF_FRC_PROFILE, amf_int64(FRC_PROFILE_SUPER))) ||
+            !Check("motion search", frc->SetProperty(AMF_FRC_MV_SEARCH_MODE, amf_int64(FRC_MV_SEARCH_NATIVE))) ||
             !Check("fallback", frc->SetProperty(AMF_FRC_ENABLE_FALLBACK, true)) ||
             !Check("future frame", frc->SetProperty(AMF_FRC_USE_FUTURE_FRAME, false)) ||
             !Check("indicator", frc->SetProperty(AMF_FRC_INDICATOR, false)) ||

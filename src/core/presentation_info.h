@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <string>
 
 namespace gp {
 
@@ -20,6 +21,8 @@ struct PresentationInfo {
     int targetRate = 0;
     // Sharp Upscale's sharpening alone, for a Feed shown at its own size.
     bool sharpenNative = false;
+    // Sharp Upscale by AMD VideoSR: "VideoSR 1.1" or "VideoSR 1.0"; empty: FSR 1.
+    std::string videoSr;
 };
 
 // Successful presents only, including repaint and Generated Frames. No refresh cap.

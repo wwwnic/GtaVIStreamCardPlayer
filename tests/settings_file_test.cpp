@@ -406,6 +406,18 @@ TEST_CASE("Sharp upscale starts off and only valid choices survive a restart") {
     CHECK_FALSE(SettingsFromText("version=1\nsharpUpscale=damaged\n").viewer.sharpUpscale);
 }
 
+TEST_CASE("The AMD VideoSR upscaler choice survives a restart, only with Sharp upscale on") {
+    gp::RememberedSettings settings;
+    CHECK_FALSE(settings.viewer.videoSr);
+    CHECK(SettingsToText(settings).find("upscaler=fsr1\n") != std::string::npos);
+    settings.viewer.sharpUpscale = settings.viewer.videoSr = true;
+    CHECK(SettingsToText(settings).find("upscaler=videosr\n") != std::string::npos);
+    CHECK(SettingsFromText(SettingsToText(settings)).viewer.videoSr);
+    CHECK_FALSE(SettingsFromText("version=1\nsharpUpscale=false\nupscaler=videosr\n").viewer.videoSr);
+    CHECK_FALSE(SettingsFromText("version=1\nsharpUpscale=true\nupscaler=rife\n").viewer.videoSr);
+    CHECK_FALSE(SettingsFromText("version=1\nsharpUpscale=true\n").viewer.videoSr);
+}
+
 TEST_CASE("Night mode starts off and only valid choices survive a restart") {
     RememberedSettings settings;
     CHECK(settings.viewer.nightMode == gp::NightMode::Off);

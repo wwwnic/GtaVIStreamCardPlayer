@@ -93,7 +93,8 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     const bool available = availability == GenerationAvailability::Available;
     const bool generating = available && settings.generation != GenerationFactor::Off;
     const std::string factor = GenerationName(settings.generation);
-    menu.sharpUpscale = {L"Sharp upscale\tU", settings.sharpUpscale};
+    menu.sharpUpscale = {settings.sharpUpscale && settings.videoSr ? L"Sharp upscale (AMD VideoSR)\tU" : L"Sharp upscale\tU",
+                         settings.sharpUpscale};
     menu.nightMode = {settings.nightMode == NightMode::Low    ? L"Night mode (low)\tN"
                       : settings.nightMode == NightMode::High ? L"Night mode (high)\tN"
                       : settings.nightMode == NightMode::Auto ? L"Night mode (auto)\tN"
@@ -120,7 +121,7 @@ std::wstring HotkeysText() {
            L"M\tMute / unmute\n"
            L"Up / Down\tVolume up / down\n"
            L"J / K\tAudio Delay 50 ms less / more\n"
-           L"U\tSharp upscale\n"
+           L"U\tSharp upscale off / FSR 1 / AMD VideoSR\n"
            L"N\tNight mode off / low / high / auto\n"
            L"G\tFrame generation off / 2x / 4x / Target\n"
            L"F\tFPS counter\n"
@@ -172,7 +173,8 @@ std::wstring AboutText(const AboutInfo& info) {
     text += L"\nSharp Upscale: ";
     const auto& p = info.presentation;
     if (p.sharpUpscale) {
-        text += L"on (" + SizeText(p.feedWidth, p.feedHeight) + L" -> " +
+        text += L"on, " + (p.videoSr.empty() ? std::wstring(L"FSR 1") : L"AMD " + std::wstring(p.videoSr.begin(), p.videoSr.end())) +
+                L" (" + SizeText(p.feedWidth, p.feedHeight) + L" -> " +
                 SizeText(p.shownWidth, p.shownHeight) + L")";
     } else if (p.sharpenNative) {
         text += L"sharpening only (" + SizeText(p.feedWidth, p.feedHeight) + L" shown at its own size)";

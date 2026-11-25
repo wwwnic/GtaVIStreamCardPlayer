@@ -56,6 +56,7 @@ struct ViewerSettings {
     AudioSettings audio;                   // volume, mute, Audio Delay
     bool alwaysOnTop = false;              // windowed only
     bool sharpUpscale = false;
+    bool videoSr = false;                  // with sharpUpscale: AMD VideoSR instead of FSR 1
     NightMode nightMode = NightMode::Off;  // the N key: lifts the dark parts of the picture
     bool vsync = false;                    // off: present on arrival, tearing allowed
     bool fpsCounter = false;               // the F key; drawn only into frames presented anyway
@@ -66,10 +67,23 @@ struct ViewerSettings {
     bool operator==(const ViewerSettings&) const = default;
 };
 
-inline bool ToggleSharpUpscale(ViewerSettings& settings, bool repeated) {
+// U: off, on (FSR 1), on with AMD VideoSR (only when videoSrAvailable), off.
+inline bool ToggleSharpUpscale(ViewerSettings& settings, bool repeated, bool videoSrAvailable = false) {
     if (repeated) return false;
-    settings.sharpUpscale = !settings.sharpUpscale;
+    if (!settings.sharpUpscale) {
+        settings.sharpUpscale = true;
+        settings.videoSr = false;
+    } else if (!settings.videoSr && videoSrAvailable) {
+        settings.videoSr = true;
+    } else {
+        settings.sharpUpscale = settings.videoSr = false;
+    }
     return true;
+}
+
+// The confirmation line for U.
+inline const char* SharpUpscaleLine(const ViewerSettings& settings) {
+    return !settings.sharpUpscale ? "Sharp upscale off" : settings.videoSr ? "Sharp upscale AMD VideoSR" : "Sharp upscale FSR 1";
 }
 
 }  // namespace gp

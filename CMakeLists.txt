@@ -52,6 +52,8 @@ add_executable(GamePlayer WIN32
     src/platform/mf_source.cpp
     src/platform/presenter.cpp
     src/platform/amf_generator.cpp
+    src/platform/gpu_priority.cpp
+    src/platform/amf_upscaler.cpp
     src/platform/frame_generator.cpp
     src/platform/sound.cpp
     src/platform/feed_keeper.cpp

@@ -103,8 +103,10 @@ public:
     // and 4x ignore it. Any thread.
     void SetTargetRate(int rate);
 
-    // Use EASU and RCAS when the picture is enlarged. Any thread.
-    void SetSharpUpscale(bool on);
+    // Use EASU and RCAS when the picture is enlarged. videoSr: AMD VideoSR
+    // (platform/amf_upscaler.h) instead, with FSR 1 until it is ready or if
+    // it fails. Any thread.
+    void SetSharpUpscale(bool on, bool videoSr = false);
 
     // Night mode (core/night_mode.h): how strongly the dark parts of every
     // frame shown are lifted, 0 (none) to 1, from the next present. No

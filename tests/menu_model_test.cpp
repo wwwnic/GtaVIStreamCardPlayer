@@ -341,13 +341,31 @@ TEST_CASE("Sharp upscale toggles once per press and the View and Hotkeys menus d
     CHECK_FALSE(s.sharpUpscale);
 }
 
+TEST_CASE("With an AMD runtime U steps off, FSR 1, AMD VideoSR, off") {
+    gp::ViewerSettings s;
+    CHECK(gp::ToggleSharpUpscale(s, false, true));
+    CHECK((s.sharpUpscale && !s.videoSr));
+    CHECK(std::string(gp::SharpUpscaleLine(s)) == "Sharp upscale FSR 1");
+    CHECK(gp::ToggleSharpUpscale(s, false, true));
+    CHECK((s.sharpUpscale && s.videoSr));
+    CHECK(std::string(gp::SharpUpscaleLine(s)) == "Sharp upscale AMD VideoSR");
+    CHECK(gp::ViewItems(s, false).sharpUpscale.label == L"Sharp upscale (AMD VideoSR)\tU");
+    CHECK(gp::ToggleSharpUpscale(s, false, true));
+    CHECK_FALSE(s.sharpUpscale);
+    CHECK_FALSE(s.videoSr);
+    CHECK(std::string(gp::SharpUpscaleLine(s)) == "Sharp upscale off");
+}
+
 TEST_CASE("About reports actual generation and Sharp Upscale states") {
     gp::AboutInfo info;
     CHECK(Contains(gp::AboutText(info), L"Frame Generation: off"));
     CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: off"));
     info.presentation = {4, 240, true, 1280, 720, 1920, 1080};
     CHECK(Contains(gp::AboutText(info), L"Frame Generation: 4x"));
-    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: on (1280x720 -> 1920x1080)"));
+    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: on, FSR 1 (1280x720 -> 1920x1080)"));
+    info.presentation.videoSr = "VideoSR 1.1";
+    CHECK(Contains(gp::AboutText(info), L"Sharp Upscale: on, AMD VideoSR 1.1 (1280x720 -> 1920x1080)"));
+    info.presentation.videoSr.clear();
     info.presentation.runningFactor = 2;
     CHECK(Contains(gp::AboutText(info), L"Frame Generation: 2x"));
     info.presentation.runningFactor = 0;

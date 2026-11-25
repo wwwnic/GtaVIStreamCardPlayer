@@ -26,7 +26,9 @@
 #include "core/target_schedule.h"
 #include "core/ladder_depth.h"
 #include "core/vsync_clock.h"
+#include "platform/amf_upscaler.h"
 #include "platform/frame_generator.h"
+#include "platform/gpu_priority.h"
 #include "platform/log.h"
 #include "platform/text_overlay.h"
 
@@ -255,7 +257,10 @@ public:
     }
 
     // No repaint: an extra present would count as a game frame for Lossless Scaling.
-    void SetSharpUpscale(bool on) { sharpUpscale_ = on; }
+    void SetSharpUpscale(bool on, bool videoSr) {
+        sharpUpscale_ = on;
+        videoSr_ = on && videoSr;
+    }
     void SetNightStrength(float strength) { nightStrength_ = std::clamp(strength, 0.0f, 1.0f); }
     void SetVsync(bool on) { vsync_ = on; }
     void SetTargetRate(int rate) {
@@ -324,6 +329,7 @@ private:
         adapter->GetDesc(&adapterInfo);
         Log("Presenter: Direct3D 11 on \"%s\", feature level 0x%X", ToUtf8(adapterInfo.Description).c_str(),
             static_cast<unsigned>(level));
+        RaiseGpuPriority();
 
         BOOL tearing = FALSE;
         ComPtr<IDXGIFactory5> factory5;
@@ -449,8 +455,9 @@ private:
         picture_.Reset(); pictureTarget_.Reset(); pictureView_.Reset();
         havePicture_ = false;
         UpscaleUsage(false, scaledWidth_, scaledHeight_);
-        scaledTarget_.Reset(); scaledView_.Reset();
+        scaledTarget_.Reset(); scaledView_.Reset(); scaledTexture_.Reset();
         scaledWidth_ = scaledHeight_ = 0;
+        upscaler_.Release();
         nightBuffer_.Reset();
         easuShader_.Reset(); rcasShader_.Reset();
         triedUpscaleShaders_ = false;
@@ -1160,20 +1167,28 @@ private:
         scaledView_.Reset();
         scaledWidth_ = fit.width;
         scaledHeight_ = fit.height;
-        ComPtr<ID3D11Texture2D> texture;
-        if (!CreateTexture(fit.width, fit.height, DXGI_FORMAT_B8G8R8A8_UNORM, true, texture, scaledView_) ||
-            FAILED(device_->CreateRenderTargetView(texture.Get(), nullptr, &scaledTarget_))) {
+        scaledTexture_.Reset();
+        if (!CreateTexture(fit.width, fit.height, DXGI_FORMAT_B8G8R8A8_UNORM, true, scaledTexture_, scaledView_) ||
+            FAILED(device_->CreateRenderTargetView(scaledTexture_.Get(), nullptr, &scaledTarget_))) {
             Log("Upscale: cannot create %dx%d intermediate texture or views; using smooth stretch", fit.width, fit.height);
             scaledView_.Reset();
+            scaledTexture_.Reset();
             return false;
         }
         return true;
     }
 
-    void UpscaleUsage(bool active, int width, int height, bool sharpenNative = false) {
+    void UpscaleUsage(bool active, int width, int height, bool sharpenNative = false, bool videoSr = false) {
+        if (videoSr != usingVideoSr_) {
+            usingVideoSr_ = videoSr;
+            Log("Upscale: AMD %s %s (picture %ux%u shown at %dx%d)",
+                upscaler_.Algorithm().empty() ? "VideoSR" : upscaler_.Algorithm().c_str(), videoSr ? "on" : "off",
+                pictureWidth_, pictureHeight_, width, height);
+        }
         {
             std::lock_guard lock(statsMutex_);
             presentation_.sharpUpscale = active;
+            presentation_.videoSr = videoSr ? upscaler_.Algorithm() : std::string();
             presentation_.sharpenNative = sharpenNative;
             presentation_.feedWidth = pictureWidth_;
             presentation_.feedHeight = pictureHeight_;
@@ -1214,8 +1229,22 @@ private:
             // At its own size: RCAS straight from the picture, pixel for pixel.
             const bool sharpen = !sharp && UseNativeSharpen(sharpUpscale_, pictureWidth_, pictureHeight_, fit) &&
                                  PrepareSharpen();
-            UpscaleUsage(sharp, fit.width, fit.height, sharpen);
-            if (sharp) {
+            // AMD VideoSR in place of EASU, when chosen and its session is ready.
+            bool videoSr = false;
+            if (sharp && videoSr_) {
+                ComPtr<ID3D11Resource> resource;
+                ComPtr<ID3D11Texture2D> source;
+                shown->GetResource(&resource);
+                if (resource && SUCCEEDED(resource.As(&source)))
+                    videoSr = upscaler_.Scale(device_.Get(), context_.Get(), source.Get(), scaledTexture_.Get());
+                if (videoSr) {  // AMF cleared the context state
+                    context_->OMSetRenderTargets(1, &target, nullptr);
+                    context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                    context_->VSSetShader(vertexShader_.Get(), nullptr, 0);
+                }
+            }
+            UpscaleUsage(sharp, fit.width, fit.height, sharpen, videoSr);
+            if (sharp && !videoSr) {
                 const D3D11_VIEWPORT whole = {0, 0, viewport.Width, viewport.Height, 0, 1};
                 ID3D11RenderTargetView* scaled = scaledTarget_.Get();
                 context_->OMSetRenderTargets(1, &scaled, nullptr);
@@ -1224,8 +1253,8 @@ private:
                 context_->PSSetShaderResources(2, 1, &shown);
                 context_->Draw(3, 0);
                 context_->OMSetRenderTargets(1, &target, nullptr);
-                picture = scaledView_.Get();
             }
+            if (sharp) picture = scaledView_.Get();
             context_->RSSetViewports(1, &viewport);
             const float strength = nightStrength_.load();
             if (nightBuffer_ && strength != uploadedNightStrength_) {
@@ -1235,7 +1264,8 @@ private:
             }
             ID3D11Buffer* night = nightBuffer_.Get();
             context_->PSSetConstantBuffers(1, 1, &night);
-            context_->PSSetShader(sharp || sharpen ? rcasShader_.Get() : showShader_.Get(), nullptr, 0);
+            // VideoSR sharpens itself: its picture goes through Show (Night mode only).
+            context_->PSSetShader((sharp && !videoSr) || sharpen ? rcasShader_.Get() : showShader_.Get(), nullptr, 0);
             context_->PSSetSamplers(0, 1, &sampler);
             context_->PSSetShaderResources(2, 1, &picture);
             context_->Draw(3, 0);
@@ -1285,11 +1315,14 @@ private:
     ComPtr<ID3D11Buffer> nightBuffer_;      // constant buffer b1 (platform/night_mode_shader.h)
     float uploadedNightStrength_ = -1;      // presenting thread only
     ComPtr<ID3D11PixelShader> easuShader_, rcasShader_;
+    ComPtr<ID3D11Texture2D> scaledTexture_;
     ComPtr<ID3D11RenderTargetView> scaledTarget_;
     ComPtr<ID3D11ShaderResourceView> scaledView_;
     int scaledWidth_ = 0, scaledHeight_ = 0;
-    bool triedUpscaleShaders_ = false, usingUpscale_ = false, usingSharpen_ = false;
+    bool triedUpscaleShaders_ = false, usingUpscale_ = false, usingSharpen_ = false, usingVideoSr_ = false;
     std::atomic<bool> sharpUpscale_{false};
+    std::atomic<bool> videoSr_{false};  // AMD VideoSR instead of EASU
+    AmfUpscaler upscaler_;              // presenting thread only
     std::atomic<bool> vsync_{false};
     struct SubmittedFrame {
         FramePtr frame;
@@ -1400,7 +1433,7 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
     impl_->ShowTextWithNextFrame(place, std::move(text));
 }
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
-void Presenter::SetSharpUpscale(bool on) { impl_->SetSharpUpscale(on); }
+void Presenter::SetSharpUpscale(bool on, bool videoSr) { impl_->SetSharpUpscale(on, videoSr); }
 void Presenter::SetNightStrength(float strength) { impl_->SetNightStrength(strength); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 void Presenter::SetTargetRate(int rate) { impl_->SetTargetRate(rate); }

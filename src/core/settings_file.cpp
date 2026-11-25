@@ -167,6 +167,7 @@ std::string SettingsToText(const RememberedSettings& settings) {
          (v.customTargetRate == kNoCustomTargetRate ? std::string("none") : std::to_string(v.customTargetRate)) +
          "\n";
     t += std::string("sharpUpscale=") + Word(v.sharpUpscale) + "\n";
+    t += std::string("upscaler=") + (v.videoSr ? "videosr" : "fsr1") + "\n";
     t += std::string("night_mode=") + NightModeWord(v.nightMode) + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
@@ -233,6 +234,7 @@ RememberedSettings SettingsFromText(std::string_view text) {
     // A number in use that is no preset is the custom one, whatever else was saved.
     if (v.targetRate != kTargetRateMonitor && !IsTargetRatePreset(v.targetRate)) v.customTargetRate = v.targetRate;
     if (const auto* x = find("sharpUpscale")) v.sharpUpscale = BoolOf(*x).value_or(false);
+    if (const auto* x = find("upscaler")) v.videoSr = v.sharpUpscale && *x == "videosr";
     if (const auto* x = find("night_mode")) v.nightMode = NightModeOf(*x).value_or(NightMode::Off);
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);
     if (const std::string* x = find("always_on_top")) v.alwaysOnTop = BoolOf(*x).value_or(false);
