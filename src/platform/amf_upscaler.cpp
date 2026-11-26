@@ -173,6 +173,12 @@ bool AmfUpscaler::Scale(ID3D11Device* device, ID3D11DeviceContext* context, ID3D
     }
 
     const auto start = Clock::now();
+    // AMF shares the immediate context: leave it in a known (cleared) state on
+    // every return from here, success, miss or failure.
+    struct ClearOnExit {
+        ID3D11DeviceContext* context;
+        ~ClearOnExit() { context->ClearState(); }
+    } clearOnExit{context};
     amf::AMFSurfacePtr input;
     if (!s.Check("CreateSurfaceFromDX11Native", s.context->CreateSurfaceFromDX11Native(source, &input, nullptr)) ||
         !input) {
@@ -216,7 +222,6 @@ bool AmfUpscaler::Scale(ID3D11Device* device, ID3D11DeviceContext* context, ID3D
         context->CopyResource(dest, texture);
         done = true;
     } while (!done && SinceMs(start) < 4.0);
-    context->ClearState();  // AMF shares the immediate context
     const double ms = SinceMs(start);
     if (done) {
         ++scaled_;

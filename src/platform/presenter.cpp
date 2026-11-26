@@ -1200,9 +1200,10 @@ private:
             Log("Upscale: RCAS sharpening at native size %s (picture %ux%u)", sharpenNative ? "on" : "off",
                 pictureWidth_, pictureHeight_);
         }
-        if (active == usingUpscale_) return;
-        usingUpscale_ = active;
-        Log("Upscale: FSR 1 %s (picture %ux%u shown at %dx%d)", active ? "on" : "off",
+        const bool fsr = active && !videoSr;  // FSR 1 EASU actually drawing
+        if (fsr == usingUpscale_) return;
+        usingUpscale_ = fsr;
+        Log("Upscale: FSR 1 %s (picture %ux%u shown at %dx%d)", fsr ? "on" : "off",
             pictureWidth_, pictureHeight_, width, height);
     }
 
@@ -1237,11 +1238,11 @@ private:
                 shown->GetResource(&resource);
                 if (resource && SUCCEEDED(resource.As(&source)))
                     videoSr = upscaler_.Scale(device_.Get(), context_.Get(), source.Get(), scaledTexture_.Get());
-                if (videoSr) {  // AMF cleared the context state
-                    context_->OMSetRenderTargets(1, &target, nullptr);
-                    context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-                    context_->VSSetShader(vertexShader_.Get(), nullptr, 0);
-                }
+                // AMF may have cleared the context state, also when it missed
+                // (the FSR 1 fallback below needs it too).
+                context_->OMSetRenderTargets(1, &target, nullptr);
+                context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                context_->VSSetShader(vertexShader_.Get(), nullptr, 0);
             }
             UpscaleUsage(sharp, fit.width, fit.height, sharpen, videoSr);
             if (sharp && !videoSr) {

@@ -356,6 +356,20 @@ TEST_CASE("With an AMD runtime U steps off, FSR 1, AMD VideoSR, off") {
     CHECK(std::string(gp::SharpUpscaleLine(s)) == "Sharp upscale off");
 }
 
+TEST_CASE("A remembered AMD VideoSR choice without the AMD runtime shows and steps as FSR 1") {
+    gp::ViewerSettings s;
+    s.sharpUpscale = s.videoSr = true;
+    CHECK(gp::ViewItems(s, false, gp::GenerationAvailability::MissingRuntime).sharpUpscale.label ==
+          L"Sharp upscale\tU");
+    CHECK(gp::ToggleSharpUpscale(s, false, false));
+    CHECK_FALSE(s.sharpUpscale);
+    CHECK_FALSE(s.videoSr);
+    CHECK(gp::ToggleSharpUpscale(s, false, false));
+    CHECK((s.sharpUpscale && !s.videoSr));
+    CHECK(gp::ToggleSharpUpscale(s, false, false));
+    CHECK_FALSE(s.sharpUpscale);
+}
+
 TEST_CASE("About reports actual generation and Sharp Upscale states") {
     gp::AboutInfo info;
     CHECK(Contains(gp::AboutText(info), L"Frame Generation: off"));

@@ -93,7 +93,10 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     const bool available = availability == GenerationAvailability::Available;
     const bool generating = available && settings.generation != GenerationFactor::Off;
     const std::string factor = GenerationName(settings.generation);
-    menu.sharpUpscale = {settings.sharpUpscale && settings.videoSr ? L"Sharp upscale (AMD VideoSR)\tU" : L"Sharp upscale\tU",
+    // A remembered VideoSR choice without the AMD runtime runs FSR 1: say so.
+    const bool videoSr = settings.sharpUpscale && settings.videoSr &&
+                         availability != GenerationAvailability::MissingRuntime;
+    menu.sharpUpscale = {videoSr ? L"Sharp upscale (AMD VideoSR)\tU" : L"Sharp upscale\tU",
                          settings.sharpUpscale};
     menu.nightMode = {settings.nightMode == NightMode::Low    ? L"Night mode (low)\tN"
                       : settings.nightMode == NightMode::High ? L"Night mode (high)\tN"

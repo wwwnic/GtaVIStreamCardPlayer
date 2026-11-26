@@ -24,7 +24,8 @@ public:
     ~AmfUpscaler();
 
     // source: BGRA at the Feed size. dest: BGRA at the shown size. True: dest
-    // holds the scaled picture; the context's state is cleared (caller rebinds).
+    // holds the scaled picture. Either way the context's state may be cleared:
+    // the caller rebinds after every call.
     bool Scale(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11Texture2D* source,
                ID3D11Texture2D* dest);
     // The device is going away.

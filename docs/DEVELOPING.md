@@ -48,17 +48,17 @@ The developer-only command-line switch `--frames-per-unique 2` or `--frames-per-
 
 ## Sharp Upscale
 
-Press U or select View > Sharp upscale to toggle the remembered choice (off on first use).
+Press U or select View > Sharp upscale to step the remembered choice (off on first use; the steps are below).
 Every actual toggle logs `Menu: Sharp upscale on/off`, even at native size where FSR 1 is unused.
 For an enlarged Feed the Presenter runs FSR 1 EASU directly from each finished picture
 to a texture matching the fitted picture rectangle. RCAS sharpens that texture pixel for
 pixel at 0.2 stops below maximum. Both passes use the same display-encoded RGB as the
 plain stretch. Generated Frames follow the same path and the text overlay is drawn last.
 A picture shown at exactly its own size (1080p in fullscreen on a 1080p monitor, or 720p in the default 1280x720 window) gets RCAS alone, straight from the picture, pixel for pixel (`UseNativeSharpen`): capture cards soften the picture a little. Logs `Upscale: RCAS sharpening at native size on/off`; Help > About says `sharpening only`. Smaller pictures use the smooth path. The optional D3D11 shaders require
-no AMF runtime. An `Upscale: FSR 1 on/off` transition logs the Feed and shown sizes.
+no AMF runtime. An `Upscale: FSR 1 on/off` transition (EASU actually drawing, so off while VideoSR scales) logs the Feed and shown sizes.
 Compilation or resource failure logs the reason and falls back to smooth stretching.
 
-With an AMD runtime, U steps off, FSR 1, AMD VideoSR, off (`ToggleSharpUpscale`; saved as `upscaler=fsr1|videosr`, only with `sharpUpscale=true`; the line says `Sharp upscale FSR 1` / `AMD VideoSR`). VideoSR (`platform/amf_upscaler.*`, idea from Veyra-NRVideo) is AMF's HQScaler component from the AMD driver, VIDEOSR1_1 (1.0 if the driver does not keep 1.1), on the Presenter's D3D11 device. It replaces EASU only: Feed-size BGRA in, the fitted size out, then the Show pass (Night mode), no RCAS (VideoSR sharpens itself). Native size still gets RCAS. The HQScaler names are written in `amf_upscaler.cpp` from the SDK's documentation; its header is not vendored. Each session (device, input size, output size) starts on a worker after the size has held 300 ms; until ready, and for the run after a failure, FSR 1 is used. Logs `Upscale: AMD VideoSR 1.1 ready in N ms`, `on/off`, and once a second `scaled N, not ready N, CPU average / worst`. Help > About says `on, AMD VideoSR 1.1 (...)` or `on, FSR 1 (...)`. Seen on the user's PC (RX 9070, 720p to 1758x989, Target 144): ready in 250 ms, 144 scaled a second, CPU 0.25 ms average, 0.5 ms worst, no missed vsyncs added. Picture quality against FSR 1: the user's eyes.
+With an AMD runtime, U steps off, FSR 1, AMD VideoSR, off (`ToggleSharpUpscale`; saved as `upscaler=fsr1|videosr`, only with `sharpUpscale=true`; the line says `Sharp upscale FSR 1` / `AMD VideoSR`). VideoSR (`platform/amf_upscaler.*`, idea from Veyra-NRVideo) is AMF's HQScaler component from the AMD driver, VIDEOSR1_1 (1.0 if the driver does not keep 1.1), on the Presenter's D3D11 device. It replaces EASU only: Feed-size BGRA in, the fitted size out, then the Show pass (Night mode), no RCAS (VideoSR sharpens itself). Native size still gets RCAS. The HQScaler names are written in `amf_upscaler.cpp` from the SDK's documentation; its header is not vendored. Each session (device, input size, output size) starts on a worker after the size has held 300 ms; until ready, when a picture is not back within 4 ms, and for the run after a failure, FSR 1 is used (`Scale` may clear the context state either way; the Presenter rebinds after every call). Logs `Upscale: AMD VideoSR 1.1 ready in N ms`, `on/off`, and once a second `scaled N, not ready N, CPU average / worst`. Help > About says `on, AMD VideoSR 1.1 (...)` or `on, FSR 1 (...)`. Seen on the user's PC (RX 9070, 720p to 1758x989, Target 144): ready in 250 ms, 144 scaled a second, CPU 0.25 ms average, 0.5 ms worst, no missed vsyncs added. Picture quality against FSR 1: the user's eyes.
 
 ## GPU priority
 
@@ -129,6 +129,6 @@ The pipeline has three stages (ADR 0002): Source, Processor, Presenter. Names fo
 - `third_party/fsr1/`: the licence of the FSR 1 code in `sharp_upscale_shader.h` (MIT).
 - `prototype/`: the throwaway prototype from ticket 01. Reference only; not part of the app.
 
-Threads: the window's thread runs the message loop; a Media Foundation thread delivers frames and runs the Processor; the Presenter's thread uploads, converts and presents. The Source's thread never waits for the GPU. Frame Generation starts each AMF driver session on a short-lived, detached worker thread; it holds its own device reference and only sets a flag the Presenter reads when done. Sound has three more: capture and render (MMCSS "Pro Audio"), and a control thread that re-opens the output and writes the sound log lines.
+Threads: the window's thread runs the message loop; a Media Foundation thread delivers frames and runs the Processor; the Presenter's thread uploads, converts and presents. The Source's thread never waits for the GPU. Frame Generation and AMD VideoSR each start each AMF driver session on a short-lived, detached worker thread; it holds its own device reference and only sets a flag the Presenter reads when done. Sound has three more: capture and render (MMCSS "Pro Audio"), and a control thread that re-opens the output and writes the sound log lines.
 
 Testing policy: unit tests for pure logic, code review for the rest, and the user checks picture and sound by hand.
