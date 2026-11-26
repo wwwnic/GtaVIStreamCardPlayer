@@ -49,7 +49,7 @@ The developer-only command-line switch `--frames-per-unique 2` or `--frames-per-
 ## Sharp Upscale
 
 Press U or select View > Sharp upscale to step the remembered choice (off on first use; the steps are below).
-Every actual toggle logs `Menu: Sharp upscale on/off`, even at native size where FSR 1 is unused.
+Every actual step logs `Menu: Sharp upscale off|FSR 1|AMD VideoSR`, even at native size where FSR 1 is unused.
 For an enlarged Feed the Presenter runs FSR 1 EASU directly from each finished picture
 to a texture matching the fitted picture rectangle. RCAS sharpens that texture pixel for
 pixel at 0.2 stops below maximum. Both passes use the same display-encoded RGB as the
