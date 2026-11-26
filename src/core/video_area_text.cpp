@@ -43,6 +43,14 @@ TextSizes SizeText(TextPlace place, int areaWidth, int areaHeight) {
     const float byHeight = height * (centre ? 0.065f : corner ? 0.025f : 0.04f);
     const float byWidth = width * (centre ? 0.045f : corner ? 0.02f : 0.03f);
     TextSizes sizes;
+    if (place == TextPlace::Help) {
+        // Thirteen or so detail lines must fit the smallest window (270 high).
+        sizes.headline = std::max(std::min(height * 0.045f, width * 0.03f), TextSizes::kMinHeadline);
+        sizes.detail = std::max(sizes.headline * 0.7f, TextSizes::kMinDetail);
+        sizes.margin = std::max(4.0f, std::min(width, height) * 0.04f);
+        sizes.maxWidth = std::max(1.0f, width - 2 * sizes.margin);
+        return sizes;
+    }
     sizes.headline = std::max(std::min(byHeight, byWidth), TextSizes::kMinHeadline);
     sizes.detail = std::max(sizes.headline * 0.55f, TextSizes::kMinDetail);
     sizes.margin = std::max(4.0f, std::min(width, height) * 0.04f);

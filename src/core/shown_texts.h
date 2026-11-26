@@ -15,7 +15,7 @@ namespace gp {
 
 class ShownTexts {
 public:
-    static constexpr size_t kPlaces = static_cast<size_t>(TextPlace::SessionPause) + 1;
+    static constexpr size_t kPlaces = static_cast<size_t>(TextPlace::Help) + 1;
     using Texts = std::array<VideoAreaText, kPlaces>;  // indexed by TextPlace
 
     // Shows `text` at `place`: until replaced (durationMs <= 0), or until

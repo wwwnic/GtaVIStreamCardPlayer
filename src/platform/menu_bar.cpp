@@ -88,6 +88,7 @@ MenuBar::MenuBar() {
     AddPopup(view_, targetRate_, L"&Target rate");
     Append(view_, kMenuSharpUpscale, view.sharpUpscale, false);
     Append(view_, kMenuNightMode, view.nightMode, false);
+    Append(view_, kMenuColourRange, view.colourRange, false);
     Append(view_, kMenuVsync, view.vsync, false);
     Append(view_, kMenuFpsCounter, view.fpsCounter, false);
     Append(view_, kMenuShowSessionClock, view.showSessionClock, false);
@@ -141,6 +142,7 @@ void MenuBar::Opening(HMENU popup, const State& state) {
     Update(view_, kMenuGeneration, view.generation);
     Update(view_, kMenuSharpUpscale, view.sharpUpscale);
     Update(view_, kMenuNightMode, view.nightMode);
+    Update(view_, kMenuColourRange, view.colourRange);
     Update(view_, kMenuVsync, view.vsync);
     Update(view_, kMenuFpsCounter, view.fpsCounter);
     Update(view_, kMenuHalfHourClock, view.halfHourClock);

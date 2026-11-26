@@ -262,6 +262,7 @@ public:
         videoSr_ = on && videoSr;
     }
     void SetNightStrength(float strength) { nightStrength_ = std::clamp(strength, 0.0f, 1.0f); }
+    void SetColourRange(RangeOverride range) { rangeOverride_ = range; }
     void SetVsync(bool on) { vsync_ = on; }
     void SetTargetRate(int rate) {
         chosenTargetRate_ = rate;
@@ -1082,7 +1083,9 @@ private:
         }
         const bool sameShape = picture_ && frame.width == pictureWidth_ && frame.height == pictureHeight_ &&
                                frame.format == pictureFormat_;
-        if (sameShape && frame.colour == pictureColour_) return true;
+        const RangeOverride range = rangeOverride_.load();
+        const Colour colour = WithRange(frame.colour, range);
+        if (sameShape && colour == pictureColour_) return true;
 
         if (!sameShape) {
             plane0_.Reset(); plane0View_.Reset(); plane1_.Reset(); plane1View_.Reset();
@@ -1107,16 +1110,18 @@ private:
             pictureFormat_ = frame.format;
         }
 
-        const YuvToRgb conversion = MakeYuvToRgb(frame.colour);
+        const YuvToRgb conversion = MakeYuvToRgb(colour);
         ConversionConstants constants = {};
         memcpy(constants.rows, conversion.rows.data(), sizeof constants.rows);
         constants.format = frame.format == PixelFormat::YUY2 ? 0u : 1u;
         constants.lastChromaColumn = static_cast<int32_t>(frame.width / 2) - 1;
         context_->UpdateSubresource(constants_.Get(), 0, nullptr, &constants, 0, 0);
-        pictureColour_ = frame.colour;
-        Log("Presenter: picture %ux%u %s, shader conversion set from the frame's colour (range %d, matrix %d)", frame.width,
-            frame.height, frame.format == PixelFormat::YUY2 ? "YUY2" : "NV12", static_cast<int>(frame.colour.range),
-            static_cast<int>(frame.colour.matrix));
+        pictureColour_ = colour;
+        Log("Presenter: picture %ux%u %s, shader conversion set from the frame's colour (range %d, matrix %d; "
+            "colour range %s, range used %d)",
+            frame.width, frame.height, frame.format == PixelFormat::YUY2 ? "YUY2" : "NV12",
+            static_cast<int>(frame.colour.range), static_cast<int>(frame.colour.matrix), RangeWord(range),
+            static_cast<int>(colour.range));
         return true;
     }
 
@@ -1313,6 +1318,7 @@ private:
     std::atomic<bool> repaint_{false};
     std::atomic<bool> pictureVisible_{true};
     std::atomic<float> nightStrength_{0};  // any thread sets it, the next present uses it
+    std::atomic<RangeOverride> rangeOverride_{RangeOverride::Auto};  // any thread; the next frame converted uses it
     ComPtr<ID3D11Buffer> nightBuffer_;      // constant buffer b1 (platform/night_mode_shader.h)
     float uploadedNightStrength_ = -1;      // presenting thread only
     ComPtr<ID3D11PixelShader> easuShader_, rcasShader_;
@@ -1436,6 +1442,7 @@ void Presenter::ShowTextWithNextFrame(TextPlace place, VideoAreaText text) {
 void Presenter::ShowPicture(bool visible) { impl_->ShowPicture(visible); }
 void Presenter::SetSharpUpscale(bool on, bool videoSr) { impl_->SetSharpUpscale(on, videoSr); }
 void Presenter::SetNightStrength(float strength) { impl_->SetNightStrength(strength); }
+void Presenter::SetColourRange(RangeOverride range) { impl_->SetColourRange(range); }
 void Presenter::SetVsync(bool on) { impl_->SetVsync(on); }
 void Presenter::SetTargetRate(int rate) { impl_->SetTargetRate(rate); }
 void Presenter::SetFrameGenerator(std::shared_ptr<FrameGenerator> generator, bool target) {

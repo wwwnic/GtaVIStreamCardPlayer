@@ -44,6 +44,7 @@ enum MenuCommand : UINT {
     kMenuShowSessionClock,
     kMenuDailyPlayTime,
     kMenuNightMode,
+    kMenuColourRange,
     kMenuHotkeys = 1500,
     kMenuAbout,
     kMenuTargetMonitor = 1600,  // then one per kTargetRatePresets entry

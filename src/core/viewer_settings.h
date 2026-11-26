@@ -8,6 +8,7 @@
 
 #include "core/audio_controls.h"
 #include "core/capture_choice.h"
+#include "core/colour.h"
 #include "core/night_mode.h"
 #include "core/target_rate.h"
 #include "core/unique_frames.h"
@@ -58,6 +59,7 @@ struct ViewerSettings {
     bool sharpUpscale = false;
     bool videoSr = false;                  // with sharpUpscale: AMD VideoSR instead of FSR 1
     NightMode nightMode = NightMode::Off;  // the N key: lifts the dark parts of the picture
+    RangeOverride colourRange = RangeOverride::Auto;  // the R key: overrides the card's colour range
     bool vsync = false;                    // off: present on arrival, tearing allowed
     bool fpsCounter = false;               // the F key; drawn only into frames presented anyway
     bool halfHourClock = true;

@@ -456,3 +456,29 @@ TEST_CASE("View > Night mode shows the level, checked while on, and N is in the 
     CHECK(gp::ViewItems(settings, false).nightMode.checked);
     CHECK(Contains(gp::HotkeysText(), L"N\tNight mode"));
 }
+
+TEST_CASE("View > Colour range shows the choice, checked unless auto, and R is in the hotkeys") {
+    gp::ViewerSettings settings;
+    auto view = gp::ViewItems(settings, false);
+    CHECK(view.colourRange.label == L"Colour range (auto)\tR");
+    CHECK_FALSE(view.colourRange.checked);
+    settings.colourRange = gp::RangeOverride::Limited;
+    view = gp::ViewItems(settings, false);
+    CHECK(view.colourRange.label == L"Colour range (limited)\tR");
+    CHECK(view.colourRange.checked);
+    settings.colourRange = gp::RangeOverride::Full;
+    CHECK(gp::ViewItems(settings, false).colourRange.label == L"Colour range (full)\tR");
+    CHECK(Contains(gp::HotkeysText(), L"\nR\tColour range"));
+}
+
+TEST_CASE("The H key list has the same keys as Help > Hotkeys, and says how to close it") {
+    const gp::VideoAreaText help = gp::KeyHelpText();
+    CHECK(help.headline == L"Keys");
+    for (const wchar_t* key : {L"F11\t", L"\nN\t", L"\nR\t", L"\nG\t", L"\nH / F1\t"}) {
+        CAPTURE(std::wstring(key));
+        CHECK(Contains(help.detail, key));
+        CHECK(Contains(gp::HotkeysText(), key));
+    }
+    CHECK(Contains(help.detail, L"Esc closes this"));
+    CHECK_FALSE(Contains(help.detail, L"Alt opens the menu"));
+}

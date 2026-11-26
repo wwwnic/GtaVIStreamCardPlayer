@@ -64,6 +64,8 @@ struct TextOverlay::Impl {
             return nullptr;
         }
         if (leading) keep.layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        // The key list: a tab between key and action, one column for all keys.
+        if (leading) keep.layout->SetIncrementalTabStop(size * 6.0f);
         keep.text = text;
         keep.size = size;
         keep.maxWidth = maxWidth;
@@ -88,7 +90,8 @@ struct TextOverlay::Impl {
 
     void DrawOne(TextPlace place, const VideoAreaText& text, uint32_t width, uint32_t height) {
         const TextSizes sizes = SizeText(place, static_cast<int>(width), static_cast<int>(height));
-        const bool corner = place == TextPlace::TopLeft || place == TextPlace::TopRight;
+        const bool help = place == TextPlace::Help;
+        const bool corner = place == TextPlace::TopLeft || place == TextPlace::TopRight || help;  // left-aligned
         KeptLayout* keep = kept[static_cast<size_t>(place)];
         IDWriteTextLayout* headline = Layout(keep[0], text.headline, sizes.headline, true, sizes.maxWidth, corner);
         IDWriteTextLayout* detail = Layout(keep[1], text.detail, sizes.detail, false, sizes.maxWidth, corner);
@@ -101,6 +104,7 @@ struct TextOverlay::Impl {
                                           detailSize.widthIncludingTrailingWhitespace);
         float top = 0;
         switch (place) {
+        case TextPlace::Help:
         case TextPlace::Centre: top = (static_cast<float>(height) - blockHeight) / 2; break;
         case TextPlace::SessionPause: top = height * 0.72f - blockHeight / 2; break;
         case TextPlace::Top:
@@ -108,7 +112,9 @@ struct TextOverlay::Impl {
         case TextPlace::TopLeft: top = sizes.margin; break;
         case TextPlace::Bottom: top = static_cast<float>(height) - sizes.margin - blockHeight; break;
         }
-        const float left = place == TextPlace::TopRight ? width - sizes.margin - blockWidth : sizes.margin;
+        const float left = place == TextPlace::TopRight ? width - sizes.margin - blockWidth
+                           : help                       ? (static_cast<float>(width) - blockWidth) / 2
+                                                        : sizes.margin;
         // A dark rounded backing, so the text reads over a bright picture too.
         const float pad = sizes.detail * 0.6f;
         const float centreX = corner ? left + blockWidth / 2 : static_cast<float>(width) / 2;

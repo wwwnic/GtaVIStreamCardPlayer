@@ -156,6 +156,18 @@ TEST_CASE("the FPS counter in the corner is the smallest text, still readable") 
     CHECK(SizeText(TextPlace::TopLeft, 320, 180).headline >= TextSizes::kMinHeadline);
 }
 
+TEST_CASE("the H key list (headline and 15 lines) fits the smallest Video Area and fullscreen") {
+    for (const auto [width, height] : {std::pair{480, 270}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        CAPTURE(height);
+        const auto sizes = SizeText(TextPlace::Help, width, height);
+        CHECK(sizes.detail >= TextSizes::kMinDetail);
+        // About 1.33 font heights per line (Segoe UI), the gap half a detail line.
+        CHECK(1.33f * sizes.headline + 0.5f * sizes.detail + 15 * 1.33f * sizes.detail < height);
+        // The longest line: a 6-em key column and about 40 characters of half an em.
+        CHECK((6 + 20) * sizes.detail < sizes.maxWidth);
+    }
+}
+
 TEST_CASE("two counter lines fit the smallest Video Area and fullscreen") {
     for (const auto [width, height] : {std::pair{480,270}, std::pair{1920,1080}}) {
         const auto sizes = SizeText(TextPlace::TopLeft, width, height);

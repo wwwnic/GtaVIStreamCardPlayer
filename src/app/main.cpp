@@ -76,6 +76,7 @@ struct App {
     gp::Presenter presenter;
     gp::Sound sound;  // started and stopped by the FeedKeeper; its settings persist
     gp::Feedback feedback;
+    bool keyHelpShown = false;  // the H / F1 key list over the picture; never saved
     int statsLogged = 0;
     int secondsSinceStats = 0;
     gp::Fullscreen fullscreen;
@@ -172,6 +173,23 @@ void CycleNightMode(App& app) {
                                                                       : "Night mode off");
 }
 
+// R and View > Colour range: auto, limited, full. From the next frame
+// converted; the feedback line presents once.
+void CycleColourRange(App& app) {
+    app.settings.colourRange = app.remembered.colourRange = gp::NextRange(app.settings.colourRange);
+    gp::Log("Menu: Colour range %s", gp::RangeWord(app.settings.colourRange));
+    app.presenter.SetColourRange(app.settings.colourRange);
+    app.feedback.Show(gp::RangeLine(app.settings.colourRange));
+}
+
+// H and F1: the key list over the picture, until H, F1 or Esc again.
+void ShowKeyHelp(App& app, bool show) {
+    if (app.keyHelpShown == show) return;
+    app.keyHelpShown = show;
+    gp::Log("Key: key list %s", show ? "shown" : "hidden");
+    app.presenter.ShowText(gp::TextPlace::Help, show ? gp::KeyHelpText() : gp::VideoAreaText{});
+}
+
 void ToggleGeneration(App& app) {
     if (app.generationAvailability != gp::GenerationAvailability::Available) {
         app.feedback.Show(app.generationAvailability == gp::GenerationAvailability::MissingRuntime
@@ -207,6 +225,8 @@ void ApplyAllSettings(App& app) {
     app.presenter.SetSharpUpscale(s.sharpUpscale, s.videoSr);
     app.feed.SetNightMode(s.nightMode);
     if (s.nightMode != gp::NightMode::Off) gp::Log("Menu: Night mode %s", gp::NightModeWord(s.nightMode));
+    app.presenter.SetColourRange(s.colourRange);
+    if (s.colourRange != gp::RangeOverride::Auto) gp::Log("Menu: Colour range %s", gp::RangeWord(s.colourRange));
     app.presenter.SetVsync(s.vsync);
     app.presenter.SetTargetRate(s.targetRate);
     if (s.targetRate == gp::kTargetRateMonitor) {
@@ -343,6 +363,7 @@ void HandleMenuCommand(App& app, UINT id) {
         break;
     case gp::kMenuSharpUpscale: ToggleUpscale(app, false); break;
     case gp::kMenuNightMode: CycleNightMode(app); break;
+    case gp::kMenuColourRange: CycleColourRange(app); break;
     case gp::kMenuGeneration: ToggleGeneration(app); break;
     case gp::kMenuVsync:
         if (s.generation != gp::GenerationFactor::Off) break;
@@ -625,6 +646,11 @@ bool RestoreWindow(HWND window, const gp::SavedWindow& saved) {
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     App* app = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     LRESULT handled = 0;
+    // Esc closes the key list first; only the next Esc leaves fullscreen.
+    if (app && message == WM_KEYDOWN && wParam == VK_ESCAPE && app->keyHelpShown) {
+        ShowKeyHelp(*app, false);
+        return 0;
+    }
     if (app && message == WM_POWERBROADCAST) app->keepAwake.PowerBroadcast(wParam, lParam);  // observes only
     if (app && app->fullscreen.HandleMessage(message, wParam, lParam, &handled)) return handled;
     if (app && app->feed.HandleMessage(message, wParam, lParam, &handled)) return handled;
@@ -669,6 +695,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         if (app && wParam == 'N') {
             if (!(lParam & (1 << 30))) CycleNightMode(*app);  // held N steps once
+            return 0;
+        }
+        if (app && wParam == 'R') {
+            if (!(lParam & (1 << 30))) CycleColourRange(*app);  // held R steps once
+            return 0;
+        }
+        if (app && (wParam == 'H' || wParam == VK_F1)) {
+            if (!(lParam & (1 << 30))) ShowKeyHelp(*app, !app->keyHelpShown);
             return 0;
         }
         if (app && wParam == 'G') {

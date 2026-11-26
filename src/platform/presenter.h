@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "core/colour.h"
 #include "core/frame_schedule.h"
 #include "core/presentation_info.h"
 #include "core/processor.h"
@@ -112,6 +113,11 @@ public:
     // frame shown are lifted, 0 (none) to 1, from the next present. No
     // present of its own. Any thread.
     void SetNightStrength(float strength);
+
+    // The R key (core/colour.h): the colour range used to convert the Feed,
+    // overriding what the Capture Card says. From the next frame converted;
+    // no present of its own. Any thread.
+    void SetColourRange(RangeOverride range);
 
     // Sets the generator asked for Generated Frames with each Unique Frame,
     // from the next one; empty (the default): none, every frame is shown

@@ -39,6 +39,8 @@ Only one program can use a capture card at a time: close OBS or the card's own s
 | G | Frame generation off / 2x / 4x / Target |
 | U | Sharp upscale off / FSR 1 / AMD VideoSR (also sharpens a picture shown at its own size) |
 | N | Night mode off / low / high / auto (lifts dark scenes; auto follows the scene) |
+| R | Colour range auto / limited / full (fixes a washed-out picture or crushed blacks) |
+| H / F1 | Show or hide the key list over the picture (Esc closes it too) |
 | F | FPS counter |
 | C | Show or hide the clock and session time |
 | P | Pause or resume the session timer |

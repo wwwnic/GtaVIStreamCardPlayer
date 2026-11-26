@@ -428,3 +428,14 @@ TEST_CASE("Night mode starts off and only valid choices survive a restart") {
     CHECK(SettingsFromText("version=1\nnight_mode=dark\n").viewer.nightMode == gp::NightMode::Off);
     CHECK(SettingsFromText("version=1\nsharpUpscale=true\n").viewer.nightMode == gp::NightMode::Off);
 }
+
+TEST_CASE("Colour range starts auto and only valid choices survive a restart") {
+    RememberedSettings settings;
+    CHECK(settings.viewer.colourRange == gp::RangeOverride::Auto);
+    settings.viewer.colourRange = gp::RangeOverride::Full;
+    CHECK(SettingsToText(settings).find("colour_range=full\n") != std::string::npos);
+    CHECK(SettingsFromText(SettingsToText(settings)).viewer.colourRange == gp::RangeOverride::Full);
+    CHECK(SettingsFromText("version=1\ncolour_range=limited\n").viewer.colourRange == gp::RangeOverride::Limited);
+    CHECK(SettingsFromText("version=1\ncolour_range=wide\n").viewer.colourRange == gp::RangeOverride::Auto);
+    CHECK(SettingsFromText("version=1\n").viewer.colourRange == gp::RangeOverride::Auto);
+}

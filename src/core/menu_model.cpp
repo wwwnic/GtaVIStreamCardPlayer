@@ -103,6 +103,10 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
                       : settings.nightMode == NightMode::Auto ? L"Night mode (auto)\tN"
                                                               : L"Night mode\tN",
                       settings.nightMode != NightMode::Off};
+    menu.colourRange = {settings.colourRange == RangeOverride::Limited ? L"Colour range (limited)\tR"
+                        : settings.colourRange == RangeOverride::Full  ? L"Colour range (full)\tR"
+                                                                       : L"Colour range (auto)\tR",
+                        settings.colourRange != RangeOverride::Auto};
     menu.generation = {L"Frame generation " + std::wstring(factor.begin(), factor.end()) + L"\tG", generating, available};
     if (availability == GenerationAvailability::MissingRuntime)
         menu.generation.label = L"Frame generation (needs an AMD graphics card)\tG";
@@ -118,20 +122,26 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn, Generation
     return menu;
 }
 
-std::wstring HotkeysText() {
-    return L"F11\tFullscreen on / off\n"
-           L"Esc\tLeave fullscreen\n"
-           L"M\tMute / unmute\n"
-           L"Up / Down\tVolume up / down\n"
-           L"J / K\tAudio Delay 50 ms less / more\n"
-           L"U\tSharp upscale off / FSR 1 / AMD VideoSR\n"
-           L"N\tNight mode off / low / high / auto\n"
-           L"G\tFrame generation off / 2x / 4x / Target\n"
-           L"F\tFPS counter\n"
-           L"C\tShow clock and session time\n"
-           L"P\tPause or resume the session timer\n"
-           L"\nAlt opens the menu (windowed only).";
-}
+namespace {
+// One line per key, a tab before what it does. Help > Hotkeys and the H overlay.
+const wchar_t kKeyLines[] = L"F11\tFullscreen on / off\n"
+                            L"Esc\tLeave fullscreen\n"
+                            L"M\tMute / unmute\n"
+                            L"Up / Down\tVolume up / down\n"
+                            L"J / K\tAudio Delay 50 ms less / more\n"
+                            L"U\tSharp upscale off / FSR 1 / AMD VideoSR\n"
+                            L"N\tNight mode off / low / high / auto\n"
+                            L"R\tColour range auto / limited / full\n"
+                            L"G\tFrame generation off / 2x / 4x / Target\n"
+                            L"F\tFPS counter\n"
+                            L"C\tShow clock and session time\n"
+                            L"P\tPause or resume the session timer\n"
+                            L"H / F1\tShow or hide this key list";
+}  // namespace
+
+std::wstring HotkeysText() { return std::wstring(kKeyLines) + L"\n\nAlt opens the menu (windowed only)."; }
+
+VideoAreaText KeyHelpText() { return {L"Keys", std::wstring(kKeyLines) + L"\n\nH or Esc closes this", 0.85f}; }
 
 std::wstring AboutText(const AboutInfo& info) {
     std::wstring text = std::wstring(L"GamePlayer ") + kViewerVersion + L"\n";

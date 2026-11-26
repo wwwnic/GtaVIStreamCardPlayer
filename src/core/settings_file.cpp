@@ -169,6 +169,7 @@ std::string SettingsToText(const RememberedSettings& settings) {
     t += std::string("sharpUpscale=") + Word(v.sharpUpscale) + "\n";
     t += std::string("upscaler=") + (v.videoSr ? "videosr" : "fsr1") + "\n";
     t += std::string("night_mode=") + NightModeWord(v.nightMode) + "\n";
+    t += std::string("colour_range=") + RangeWord(v.colourRange) + "\n";
     t += std::string("vsync=") + Word(v.vsync) + "\n";
     t += std::string("always_on_top=") + Word(v.alwaysOnTop) + "\n";
     t += std::string("fps_counter=") + Word(v.fpsCounter) + "\n";
@@ -236,6 +237,7 @@ RememberedSettings SettingsFromText(std::string_view text) {
     if (const auto* x = find("sharpUpscale")) v.sharpUpscale = BoolOf(*x).value_or(false);
     if (const auto* x = find("upscaler")) v.videoSr = v.sharpUpscale && *x == "videosr";
     if (const auto* x = find("night_mode")) v.nightMode = NightModeOf(*x).value_or(NightMode::Off);
+    if (const auto* x = find("colour_range")) v.colourRange = RangeOf(*x);
     if (const std::string* x = find("vsync")) v.vsync = BoolOf(*x).value_or(false);
     if (const std::string* x = find("always_on_top")) v.alwaysOnTop = BoolOf(*x).value_or(false);
     if (const std::string* x = find("fps_counter")) v.fpsCounter = BoolOf(*x).value_or(false);

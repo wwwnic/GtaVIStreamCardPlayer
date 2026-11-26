@@ -12,6 +12,7 @@
 #include "core/capture_choice.h"
 #include "core/presentation_info.h"
 #include "core/unique_frames.h"
+#include "core/video_area_text.h"
 #include "core/viewer_settings.h"
 
 namespace gp {
@@ -59,6 +60,7 @@ struct ViewMenu {
     MenuItem generation;
     MenuItem sharpUpscale;
     MenuItem nightMode;   // in step with the N key: off, low, high
+    MenuItem colourRange; // in step with the R key: auto, limited, full
     MenuItem vsync;
     MenuItem fpsCounter;  // in step with the F key
     MenuItem halfHourClock;
@@ -70,6 +72,10 @@ ViewMenu ViewItems(const ViewerSettings& settings, bool fullscreenOn,
 
 // Help > Hotkeys.
 std::wstring HotkeysText();
+
+// The key list drawn over the picture by H or F1 (TextPlace::Help), the same
+// lines as Help > Hotkeys, so it reads in fullscreen too.
+VideoAreaText KeyHelpText();
 
 // Help > About: name, version and what is in use now.
 struct AboutInfo {

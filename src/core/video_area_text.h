@@ -15,6 +15,7 @@ enum class TextPlace {
     TopLeft, // the FPS counter (ticket 04): small, left-aligned in the corner
     TopRight, // local clock, elapsed session time and their reminders
     SessionPause, // persistent reminder below the centre of the picture
+    Help,    // the key list (H or F1), centred, drawn above everything else
 };
 
 // One line saying what is wrong, optionally a smaller line saying what to do.

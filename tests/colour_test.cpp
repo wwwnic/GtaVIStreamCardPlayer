@@ -81,3 +81,24 @@ TEST_CASE("the same bytes give a different picture when the matrix differs") {
     std::array<float, 3> wrong = Convert(kLimited601, 63, 102, 240);
     CHECK(std::fabs(wrong[1]) > 0.05f);
 }
+
+TEST_CASE("the R key's range override replaces only the range the card stated") {
+    using gp::RangeOverride;
+    using gp::WithRange;
+    CHECK(WithRange(kFull709, RangeOverride::Auto) == kFull709);
+    CHECK(WithRange(Colour{}, RangeOverride::Auto) == Colour{});
+    CHECK(WithRange(kFull601, RangeOverride::Limited) == kLimited601);
+    CHECK(WithRange(kLimited709, RangeOverride::Full) == kFull709);
+    // A card that says full but sends limited: Limited makes code 16 black again.
+    CheckRgb(Convert(WithRange(kFull709, RangeOverride::Limited), 16, 128, 128), 0, 0, 0);
+}
+
+TEST_CASE("R steps auto, limited, full and back; words round-trip") {
+    using gp::RangeOverride;
+    CHECK(gp::NextRange(RangeOverride::Auto) == RangeOverride::Limited);
+    CHECK(gp::NextRange(RangeOverride::Limited) == RangeOverride::Full);
+    CHECK(gp::NextRange(RangeOverride::Full) == RangeOverride::Auto);
+    for (RangeOverride r : {RangeOverride::Auto, RangeOverride::Limited, RangeOverride::Full})
+        CHECK(gp::RangeOf(gp::RangeWord(r)) == r);
+    CHECK(gp::RangeOf("") == RangeOverride::Auto);
+}
